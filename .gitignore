@@ -1,0 +1,68 @@
+# ===================================
+# Backend NestJS - .gitignore
+# ===================================
+
+# Dependencies
+node_modules/
+.npm/
+.yarn/
+package-lock.json
+yarn.lock
+
+# Build
+dist/
+build/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+lerna-debug.log*
+
+# Cache
+.cache/
+.eslintcache
+.node_modules.swiftpm
+
+# Testing
+coverage/
+.nyc_output/
+jest-coverage/
+
+# OS
+.DS_Store
+Thumbs.db
+.AppleDouble
+
+# Temporary
+.tmp/
+temp/
+*.tmp
+
+# Database
+*.sqlite
+*.db
+
+# Secrets
+*.pem
+*.key
+.env.production
+
+# Generated
+src/database/migrations/*.js
