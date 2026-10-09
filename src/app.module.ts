@@ -28,7 +28,14 @@ import { ReportesModule } from './modules/reportes/reportes.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validarEntorno }),
-    TypeOrmModule.forRootAsync({ useFactory: () => crearOpcionesBaseDatos() }),
+    TypeOrmModule.forRootAsync({
+      useFactory: () => ({
+        ...crearOpcionesBaseDatos(),
+        // Aplica migraciones pendientes antes del bootstrap (crea el admin inicial): el
+        // despliegue no depende de que el pre-deploy de Railway se haya ejecutado.
+        migrationsRun: process.env.DB_MIGRAR_AL_ARRANCAR !== 'false',
+      }),
+    }),
     JwtModule.register({ global: true }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     AuditoriaModule,

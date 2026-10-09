@@ -107,7 +107,7 @@ El repositorio incluye `Dockerfile` (multi-etapa, Node 24) y `railway.json` (hea
 
    `PORT` lo asigna Railway. Swagger queda desactivado en producción salvo `SWAGGER_ENABLED=true`.
 4. **Settings → Networking → Generate Domain** y use esa URL + `/api` como `NEXT_PUBLIC_API_URL` en Vercel.
-5. Cada *push* a `main` construye la imagen, ejecuta `npm run migration:run:prod` y, si el healthcheck responde, publica la nueva versión.
+5. Cada *push* a `main` construye la imagen, ejecuta `npm run migration:run:prod` (pre-deploy) y, si el healthcheck responde, publica la nueva versión. Además, el API aplica las migraciones pendientes al arrancar (`DB_MIGRAR_AL_ARRANCAR`, activo por defecto), así que una base nueva queda lista aunque el pre-deploy no se ejecute; desactívelo solo si escala a varias réplicas.
 
 Respaldos: active los *backups* del servicio PostgreSQL en Railway. Los adjuntos de la bitácora se guardan en la base de datos (el disco del contenedor es efímero), así que quedan incluidos.
 
