@@ -90,15 +90,15 @@ Fuera de alcance por ahora (requieren datos que el sistema no registra): incapac
 
 ## Despliegue en Railway
 
-El repositorio incluye `Dockerfile` (multi-etapa, Node 24) y `railway.json` (healthcheck `/api/health` y migraciones en *pre-deploy*).
+Railway detecta el `Dockerfile` (multi-etapa, Node 24) automáticamente. La configuración del servicio se hace en el panel: Railway dejó de leer `railway.json` (*Config as Code*) en proyectos creados desde el 28-ago-2026 y lo retira del todo el 1-dic-2026.
 
-1. En Railway: **New Project → Deploy from GitHub repo** → `escano1/gestion-proyecto-backend`.
-2. **+ New → Database → PostgreSQL** en el mismo proyecto.
+1. **New Project → Deploy from GitHub repo** → `escano1/gestion-proyecto-backend`.
+2. **+ Create → Database → PostgreSQL** en el mismo proyecto.
 3. Variables del servicio de la API:
 
    | Variable | Valor |
    |---|---|
-   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (red privada; deje `DB_SSL=false`) |
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (red privada; no defina `DB_SSL`) |
    | `NODE_ENV` | `production` |
    | `JWT_SECRET`, `JWT_REFRESH_SECRET` | dos cadenas aleatorias distintas de 64+ caracteres |
    | `CORS_ORIGINS` | `https://<su-app>.vercel.app` (agregue `https://*.vercel.app` solo si quiere habilitar los *previews*) |
@@ -106,8 +106,13 @@ El repositorio incluye `Dockerfile` (multi-etapa, Node 24) y `railway.json` (hea
    | `EMPRESA_NOMBRE`, `EMPRESA_NIT` | encabezado de los desprendibles |
 
    `PORT` lo asigna Railway. Swagger queda desactivado en producción salvo `SWAGGER_ENABLED=true`.
-4. **Settings → Networking → Generate Domain** y use esa URL + `/api` como `NEXT_PUBLIC_API_URL` en Vercel.
-5. Cada *push* a `main` construye la imagen, ejecuta `npm run migration:run:prod` (pre-deploy) y, si el healthcheck responde, publica la nueva versión. Además, el API aplica las migraciones pendientes al arrancar (`DB_MIGRAR_AL_ARRANCAR`, activo por defecto), así que una base nueva queda lista aunque el pre-deploy no se ejecute; desactívelo solo si escala a varias réplicas.
+4. **Settings → Deploy**:
+   - *Pre-deploy Command*: `npm run migration:run:prod`
+   - *Healthcheck Path*: `/api/health` (timeout 120 s)
+   - *Restart Policy*: On Failure, 5 reintentos
+5. **Settings → Networking → Generate Domain** y use esa URL + `/api` como `NEXT_PUBLIC_API_URL` en Vercel.
+
+Cada *push* a `main` construye la imagen, aplica las migraciones en el pre-deploy y publica la versión cuando `/api/health` responde. El API además aplica las migraciones pendientes al arrancar (`DB_MIGRAR_AL_ARRANCAR`, activo por defecto), de modo que una base nueva queda lista aunque falte el pre-deploy; desactívelo solo si escala a varias réplicas. En los *Deploy Logs* debe verse `Migration ... has been executed successfully` (o `No migrations are pending`) y luego `API escuchando en el puerto ...`.
 
 Respaldos: active los *backups* del servicio PostgreSQL en Railway. Los adjuntos de la bitácora se guardan en la base de datos (el disco del contenedor es efímero), así que quedan incluidos.
 
