@@ -6,8 +6,6 @@
 node_modules/
 .npm/
 .yarn/
-package-lock.json
-yarn.lock
 
 # Build
 dist/
@@ -66,3 +64,6 @@ temp/
 
 # Generated
 src/database/migrations/*.js
+
+# Uploads locales (los adjuntos se guardan en PostgreSQL)
+uploads/

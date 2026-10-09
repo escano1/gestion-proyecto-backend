@@ -1,0 +1,6 @@
+export enum Rol {
+  ADMIN = 'ADMIN',
+  GESTOR_PROYECTOS = 'GESTOR_PROYECTOS',
+  NOMINA = 'NOMINA',
+  CONSULTA = 'CONSULTA',
+}

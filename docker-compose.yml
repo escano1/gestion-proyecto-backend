@@ -1,0 +1,23 @@
+# PostgreSQL para desarrollo local. En producción (Railway) se usa el plugin de Postgres.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: gestion-proyecto-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gestion
+      POSTGRES_PASSWORD: gestion_local
+      POSTGRES_DB: gestion_proyectos
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gestion -d gestion_proyectos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

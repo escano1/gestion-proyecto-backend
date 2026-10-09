@@ -1,519 +1,122 @@
-# 💻 Backend - NestJS + PostgreSQL
+# Gestión de Proyectos y Nómina — API
 
-API RESTful para sistema de gestión de proyectos y nómina colombiana.
+API REST para gestionar proyectos de ingeniería eléctrica, registro de horas y liquidación de nómina colombiana.
 
-**Stack**: NestJS 10+ | TypeORM | PostgreSQL | TypeScript | JWT  
-**Puertos**: `3000` (API) | `5432` (DB)
+**Stack:** NestJS 12 (ESM) · TypeORM 1 · PostgreSQL 16 · TypeScript 6 · Vitest · Despliegue en Railway.
+Contrato de la API: [`docs/API.md`](https://github.com/escano1/gestion-proyecto-claude/blob/main/docs/API.md) en el repositorio de lineamientos. Documentación interactiva (Swagger): `/api/docs`.
 
----
+## Desarrollo local
 
-## 🎯 Propósito
+Requisitos: Node.js 24.15+ (recomendado, igual que Docker y CI) o 22.22.3+ de la línea 22, y Docker.
 
-Proporcionar API robusta, validada y auditable para:
-- Autenticación y autorización (JWT)
-- CRUD de trabajadores, proyectos, asignaciones
-- Registro de horas con validaciones legales
-- Cálculo automático de nómina colombiana
-- Reportes y exports (PDF, Excel)
-- Auditoría completa de cambios
+```bash
+cp .env.example .env          # genera JWT_SECRET y JWT_REFRESH_SECRET propios
+npm ci
+npm run db:up                 # PostgreSQL 16 en localhost:5432 (+ base de pruebas)
+npm run migration:run         # esquema + tipos de hora + parámetros legales
+npm run start:dev             # http://localhost:3001/api
+```
 
----
+Al arrancar con la tabla `usuarios` vacía se crea el administrador definido en `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
 
-## 📁 Estructura
+### Usuarios y datos de prueba
+
+Con el API corriendo, `npm run seed:demo` crea un usuario por rol y datos de ejemplo (3 proyectos, 4 trabajadores, ~45 días de horas, una liquidación en borrador, materiales, herramientas, hitos y bitácora). Es idempotente y se niega a correr contra un API que no sea local.
+
+| Rol | Correo | Contraseña | Qué puede hacer |
+|---|---|---|---|
+| Administrador | `ADMIN_EMAIL` (`admin@empresa.com`) | `ADMIN_PASSWORD` (`CambiarEsta123*`) | Todo, incluidos usuarios y auditoría |
+| Gestor de proyectos | `gestor@empresa.com` | `Gestor12345` | Proyectos, asignaciones, horas, materiales, herramientas, hitos y bitácora |
+| Nómina | `nomina@empresa.com` | `Nomina12345` | Trabajadores, horas, nómina y parámetros legales |
+| Consulta | `consulta@empresa.com` | `Consulta123` | Solo lectura (sin nómina, usuarios ni auditoría) |
+
+Son credenciales de desarrollo: no ejecute el seed en producción.
+
+| Script | Uso |
+|---|---|
+| `npm run start:dev` | Servidor con recarga |
+| `npm run build` / `npm run start:prod` | Compilar y ejecutar `dist/` |
+| `npm test` | Pruebas unitarias (Vitest) |
+| `npm run test:e2e` | Pruebas de punta a punta contra `TEST_DATABASE_URL` |
+| `npm run lint` · `npm run typecheck` | oxlint y TypeScript |
+| `npm run migration:generate -- src/database/migrations/Nombre` | Generar migración tras cambiar entidades |
+| `npm run migration:run` / `migration:revert` | Aplicar / revertir migraciones |
+| `npm run seed:demo` | Usuarios por rol y datos de ejemplo (solo local) |
+
+> Las migraciones se registran explícitamente en `src/database/migraciones.ts` (y las entidades en `src/database/entidades.ts`): agregue ahí cada archivo nuevo.
+
+## Estructura
 
 ```
 src/
-├── main.ts                          # Punto de entrada
-├── app.module.ts                    # Módulo raíz
-│
-├── modules/                         # Módulos por feature
-│   ├── auth/                        # Autenticación JWT
-│   ├── usuario/                     # Gestión de usuarios
-│   ├── trabajador/                  # CRUD trabajadores
-│   ├── proyecto/                    # CRUD proyectos
-│   ├── asignacion-proyecto/         # Relación trabajador-proyecto
-│   ├── tipo-hora/                   # Configuración de tipos de hora
-│   ├── registro-horas/              # Captura de horas (CRÍTICO)
-│   ├── nomina/                      # Motor de nómina (CRÍTICO)
-│   │   ├── calculators/
-│   │   │   ├── hora.calculator.ts
-│   │   │   ├── deduccion.calculator.ts
-│   │   │   └── retencion.calculator.ts
-│   │   ├── services/
-│   │   │   ├── nomina.service.ts
-│   │   │   ├── pdf-generator.service.ts
-│   │   │   └── excel-generator.service.ts
-│   │   └── tests/
-│   │       └── nomina.service.spec.ts  (50+ tests)
-│   ├── reporte/                     # Reportes y dashboards
-│   ├── auditoria/                   # Log de cambios
-│   └── material-herramienta/        # Materiales y herramientas
-│
-├── database/
-│   ├── entities/                    # Entidades TypeORM
-│   ├── migrations/                  # Versionado de BD
-│   └── seeders/                     # Data inicial
-│
-├── common/
-│   ├── decorators/                  # @Roles, @IsOwner, etc.
-│   ├── guards/                      # JwtAuthGuard, RolesGuard
-│   ├── filters/                     # Error handling
-│   ├── interceptors/                # Logging, transformación
-│   ├── pipes/                       # Validación custom
-│   └── exceptions/                  # CustomException
-│
-└── config/
-    ├── database.config.ts           # PostgreSQL connection
-    ├── jwt.config.ts                # JWT configuration
-    ├── nomina-parametros.ts         # Parámetros legales Colombia
-    └── app.config.ts                # App configuration
+├── main.ts · app.module.ts · configurar-app.ts   # arranque, guards globales, CORS, Swagger
+├── config/          # validación de entorno y opciones de PostgreSQL
+├── database/        # entidades, migraciones, data source de la CLI, nombres snake_case
+├── common/          # guards JWT/roles, decoradores, filtros de errores, utilidades de fecha y dinero
+└── modules/
+    ├── auth · usuarios                 # JWT (acceso 15 min + refresh 7 días), roles, admin inicial
+    ├── trabajadores · proyectos · asignaciones
+    ├── tipos-hora · parametros         # parámetros legales con fecha de vigencia
+    ├── registro-horas                  # captura diaria/por lotes, validaciones y alertas legales
+    ├── nomina                          # motor de liquidación (calculo/) y exportaciones PDF/Excel
+    ├── materiales · herramientas · hitos · bitacora
+    ├── reportes                        # dashboard, horas, costos, alertas, avance
+    └── auditoria                       # quién, cuándo y qué cambió
 ```
 
----
+## Reglas de nómina
 
-## 🚀 Quick Start
+Los valores legales **no están en el código**: viven en la tabla `parametros_legales` con fecha de vigencia y se editan desde *Configuración › Parámetros legales*. Un cálculo usa el valor vigente en la fecha de cada hora trabajada. La migración `DatosIniciales` siembra:
 
-### 1. Instalar Dependencias
+| Parámetro | Valores sembrados |
+|---|---|
+| SMMLV / auxilio de transporte | 2024, 2025 y 2026 ($1.750.905 / $249.095 — Decretos 1469 y 1470 de 2025) |
+| UVT | 2024, 2025 y 2026 ($52.374 — Res. DIAN 000238 de 2025) |
+| Jornada máxima (Ley 2101 de 2021) | 47 h → 46 h (15-jul-2024) → 44 h (15-jul-2025) → **42 h (15-jul-2026)** |
+| Recargo dominical/festivo (Ley 2466 de 2025) | 75 % → 80 % (1-jul-2025) → **90 % (1-jul-2026)** → 100 % (1-jul-2027) |
+| Nocturno · extra diurna · extra nocturna | 35 % · 25 % · 75 % |
+| Aportes del trabajador | Salud 4 % · Pensión 4 % |
+| Límites de alerta | 2 h extra/día · 12 h extra/semana |
+
+Resumen del cálculo (`src/modules/nomina/calculo/`):
+- **Valor hora** = salario mensual ÷ (jornada semanal × 5) → con 42 h: salario ÷ 210. Los salarios por hora usan su tarifa.
+- **Salario mensual:** se paga por días (convención de 30 días); las horas ordinarias dentro de la jornada ya están incluidas y solo se pagan los recargos. **Horas extra** y **salario por hora:** valor hora × (1 + recargo).
+- El recargo dominical se suma a nocturno y extras (p. ej. extra dominical nocturna = 75 % + 90 %).
+- **Auxilio de transporte** si el salario ≤ 2 SMMLV, proporcional a los días; no forma parte del IBC.
+- **Deducciones:** salud y pensión sobre el IBC (tope 25 SMMLV), Fondo de Solidaridad Pensional (1 %–2 % desde 4 SMMLV) y retención en la fuente por procedimiento 1 (art. 383 E.T., renta exenta del 25 % con tope de 790 UVT/año).
+- Las liquidaciones se crean en **borrador**; cualquier cambio de horas, salarios o parámetros las marca para recálculo. Al **cerrarlas** se bloquea la edición de horas del periodo.
+
+Fuera de alcance por ahora (requieren datos que el sistema no registra): incapacidades, licencias y vacaciones; prestaciones sociales (prima, cesantías) y aportes del empleador; salario integral; deducciones por dependientes, intereses de vivienda o medicina prepagada en la retención.
+
+## Despliegue en Railway
+
+El repositorio incluye `Dockerfile` (multi-etapa, Node 24) y `railway.json` (healthcheck `/api/health` y migraciones en *pre-deploy*).
+
+1. En Railway: **New Project → Deploy from GitHub repo** → `escano1/gestion-proyecto-backend`.
+2. **+ New → Database → PostgreSQL** en el mismo proyecto.
+3. Variables del servicio de la API:
+
+   | Variable | Valor |
+   |---|---|
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (red privada; deje `DB_SSL=false`) |
+   | `NODE_ENV` | `production` |
+   | `JWT_SECRET`, `JWT_REFRESH_SECRET` | dos cadenas aleatorias distintas de 64+ caracteres |
+   | `CORS_ORIGINS` | `https://<su-app>.vercel.app` (agregue `https://*.vercel.app` solo si quiere habilitar los *previews*) |
+   | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NOMBRE` | administrador inicial (cambie la clave tras el primer ingreso) |
+   | `EMPRESA_NOMBRE`, `EMPRESA_NIT` | encabezado de los desprendibles |
+
+   `PORT` lo asigna Railway. Swagger queda desactivado en producción salvo `SWAGGER_ENABLED=true`.
+4. **Settings → Networking → Generate Domain** y use esa URL + `/api` como `NEXT_PUBLIC_API_URL` en Vercel.
+5. Cada *push* a `main` construye la imagen, ejecuta `npm run migration:run:prod` y, si el healthcheck responde, publica la nueva versión.
+
+Respaldos: active los *backups* del servicio PostgreSQL en Railway. Los adjuntos de la bitácora se guardan en la base de datos (el disco del contenedor es efímero), así que quedan incluidos.
+
+## Pruebas
 
 ```bash
-npm install
-
-# O con Yarn
-yarn install
+npm test            # unitarias: motor de nómina, retención, FSP, periodos, alertas, costos, reglas de negocio
+npm run test:e2e    # requiere la base gestion_proyectos_test (la crea docker compose la primera vez)
 ```
 
-### 2. Configurar Ambiente
-
-Crear `.env.local`:
-
-```
-# Base de datos
-DB_HOST=localhost
-DB_PORT=5432
-DB_USERNAME=gestion_usuarios
-DB_PASSWORD=tu_contraseña_segura
-DB_NAME=gestion_proyectos_db
-
-# Autenticación
-JWT_SECRET=tu_jwt_secret_muy_largo_y_seguro_aqui
-JWT_EXPIRATION=900s
-
-# Aplicación
-NODE_ENV=development
-PORT=3000
-```
-
-### 3. Iniciar Base de Datos
-
-```bash
-# Con Docker (recomendado)
-docker-compose up -d
-
-# O PostgreSQL local (ver puerto y credenciales en .env.local)
-```
-
-### 4. Ejecutar Migrations
-
-```bash
-npm run typeorm migration:run
-```
-
-### 5. Iniciar Desarrollo
-
-```bash
-npm run start:dev
-
-# Debería salir:
-# [NestFactory] Nest application successfully started
-# Listening on port 3000
-```
-
-Verificar en: `http://localhost:3000/api/health`
-
----
-
-## 🔑 Autenticación
-
-### Login
-
-```bash
-POST /api/auth/login
-Content-Type: application/json
-
-{
-  "email": "usuario@example.com",
-  "password": "password123"
-}
-
-Response: {
-  "access_token": "eyJhbGc...",
-  "refresh_token": "eyJhbGc...",
-  "usuario": { "id": 1, "nombre": "Juan", "rol": "admin" }
-}
-```
-
-### Usar Token en Requests
-
-```bash
-GET /api/trabajadores
-Authorization: Bearer eyJhbGc...
-```
-
-### Token Expiration
-
-- **Access Token**: 15 minutos
-- **Refresh Token**: 7 días
-- Refresh automático en cliente
-
----
-
-## 📚 Módulos Disponibles
-
-### Auth
-```
-POST   /api/auth/login              # Login
-POST   /api/auth/register           # Registro
-POST   /api/auth/refresh            # Refresh token
-```
-
-### Trabajadores
-```
-GET    /api/trabajadores             # Lista
-GET    /api/trabajadores/:id         # Detalle
-POST   /api/trabajadores             # Crear (require: admin, gestor)
-PUT    /api/trabajadores/:id         # Actualizar
-DELETE /api/trabajadores/:id         # Eliminar
-```
-
-### Proyectos
-```
-GET    /api/proyectos
-GET    /api/proyectos/:id
-POST   /api/proyectos                # Crear (require: admin, gestor)
-PUT    /api/proyectos/:id            # Actualizar
-DELETE /api/proyectos/:id            # Eliminar
-```
-
-### Registro de Horas (CRÍTICO)
-```
-POST   /api/registro-horas           # Crear registro
-GET    /api/registro-horas/periodo   # Por período (mes/año)
-GET    /api/registro-horas/:id       # Detalle
-PUT    /api/registro-horas/:id       # Actualizar
-DELETE /api/registro-horas/:id       # Eliminar (con auditoría)
-```
-
-**Validaciones**:
-- Máximo 12 horas/día
-- Máximo 80 horas extras/semana
-- No permitir duplicados (trabajador, proyecto, fecha, tipo_hora)
-
-### Nómina (CRÍTICO)
-```
-POST   /api/nomina/calcular          # Calcular para período (require: nómina)
-GET    /api/nomina                   # Lista
-GET    /api/nomina/:id               # Detalle
-GET    /api/nomina/:id/pdf           # Descargar PDF
-GET    /api/nomina/:id/excel         # Descargar Excel
-```
-
-**Validaciones**:
-- No permitir nómina duplicada
-- Validar que existan registros de horas
-- Trabajador debe estar activo
-
----
-
-## 🧪 Testing
-
-### Ejecutar Tests
-
-```bash
-# Todos los tests
-npm test
-
-# Tests específicos
-npm test -- nomina.service.spec
-
-# Con cobertura
-npm test -- --coverage
-
-# Watch mode
-npm test -- --watch
-```
-
-### Estructura de Tests
-
-```typescript
-describe('TrabajadorService', () => {
-  let service: TrabajadorService;
-  
-  beforeEach(async () => {
-    const module = await Test.createTestingModule({
-      providers: [TrabajadorService],
-    }).compile();
-    
-    service = module.get<TrabajadorService>(TrabajadorService);
-  });
-  
-  it('debe crear un trabajador', async () => {
-    // Test...
-  });
-});
-```
-
-### Coverage Requerido
-
-```
-Servicios:          80%+
-Nómina:             85%+
-Controladores:      70%+
-```
-
----
-
-## 🗄️ Base de Datos
-
-### Entidades Principales
-
-```
-usuario             # Usuarios de sistema (admin, gestor, nómina)
-trabajador          # Empleados
-proyecto            # Proyectos de ingeniería
-asignacion_proyecto # Trabajador asignado a proyecto (N-M)
-tipo_hora           # Configuración: ordinaria, nocturna, extras, etc.
-registro_horas      # Diario de horas trabajadas (CRÍTICO)
-nomina              # Nómina calculada por período
-detalle_nomina      # Línea por línea de cálculo (auditoría)
-log_auditoria       # Historial de cambios
-```
-
-### Migrations
-
-```bash
-# Ver migrations
-npm run typeorm migration:show
-
-# Ejecutar
-npm run typeorm migration:run
-
-# Generar automática (después de cambiar entity)
-npm run typeorm migration:generate src/database/migrations/[Nombre]
-
-# Revertir última
-npm run typeorm migration:revert
-```
-
-### Tipos de Datos Críticos
-
-```typescript
-// Dinero: SIEMPRE decimal(12,2)
-salarioBase: decimal(12,2)      // $999,999,999.99
-
-// Horas: decimal(5,2)
-cantidadHoras: decimal(5,2)     // 12.50
-
-// NO usar float/double para dinero
-```
-
----
-
-## 🔒 Seguridad
-
-### Autenticación
-- JWT con access + refresh tokens
-- Contraseñas: bcrypt (10+ salts)
-- Expiración y refresh automático
-
-### Autorización
-```typescript
-@UseGuards(JwtAuthGuard)           // Requiere login
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('admin', 'nómina')          // Requiere rol específico
-```
-
-### Validación
-```typescript
-@Post()
-@UsePipes(ValidationPipe)
-crear(@Body() dto: CreateTrabajadorDto) {
-  // class-validator valida automáticamente
-}
-```
-
-### Auditoría
-```typescript
-// Automático en módulo auditoria
-await this.auditoriaService.crear({
-  tablaNombre: 'registro_horas',
-  accion: 'INSERT',
-  datosNuevos: registro,
-  usuarioId: req.user.id
-});
-```
-
----
-
-## 🎯 Desarrollo de Módulo Nuevo
-
-### Con Skill `setup-nest-module`
-
-```bash
-# Define parámetros
-moduleName: material
-fields:
-  - name: nombre
-    type: string
-    required: true
-  - name: cantidad
-    type: number
-    required: true
-hasRepository: true
-```
-
-Genera automáticamente:
-- Entity + TypeORM decorators
-- Create/Update DTOs
-- Service con CRUD
-- Controller con guards
-- Tests básicos
-
-### Manual (paso a paso)
-
-1. Crear `src/modules/[feature]/entities/[feature].entity.ts`
-2. Crear DTOs en `src/modules/[feature]/dto/`
-3. Crear `[feature].service.ts`
-4. Crear `[feature].controller.ts`
-5. Crear `[feature].module.ts`
-6. Importar en `app.module.ts`
-7. Crear tests en `[feature].service.spec.ts`
-
----
-
-## 🚀 Comandos Disponibles
-
-```bash
-npm run start              # Producción
-npm run start:dev         # Desarrollo (hot reload)
-npm run build             # Compilar TypeScript
-npm test                  # Tests
-npm test -- --coverage    # Con cobertura
-npm run lint              # ESLint
-npm run format            # Prettier
-npm run type-check        # TypeScript check
-
-# Base de datos
-npm run typeorm migration:run        # Ejecutar migrations
-npm run typeorm migration:revert     # Revertir última
-npm run typeorm migration:show       # Ver estado
-```
-
----
-
-## 🔍 Debugging
-
-### Logs en Desarrollo
-
-```typescript
-// Winston logger (automático en NestJS)
-this.logger.log('Mensaje');
-this.logger.warn('Advertencia');
-this.logger.error('Error', error.stack);
-```
-
-### Error Handling
-
-```typescript
-// Errores custom
-throw new BadRequestException('Validación falló');
-throw new NotFoundException('No encontrado');
-throw new UnauthorizedException('No autorizado');
-throw new ForbiddenException('Acceso denegado');
-```
-
-### Debugging con VSCode
-
-Crear `.vscode/launch.json`:
-
-```json
-{
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "type": "node",
-      "request": "launch",
-      "name": "NestJS Debug",
-      "program": "${workspaceFolder}/node_modules/.bin/nest",
-      "args": ["start", "--debug", "--watch"],
-      "console": "integratedTerminal"
-    }
-  ]
-}
-```
-
----
-
-## 📊 Parámetros Legales (Colombia 2026)
-
-Archivo: `src/config/nomina-parametros.ts`
-
-```typescript
-export const RECARGOS = {
-  ORDINARIA: 0,           // 0%
-  NOCTURNA: 0.35,        // +35%
-  EXTRA_DIURNA: 0.25,    // +25%
-  // ... etc
-};
-
-export const DEDUCCIONES = {
-  SALUD: 0.04,    // 4%
-  PENSION: 0.04,  // 4%
-  // ... etc
-};
-```
-
-Cambios requieren:
-1. Actualizar archivo
-2. Agregar tests
-3. Ejecutar suite completa
-4. Validar con especialista laboral
-
----
-
-## 🔗 Referencias
-
-- [NestJS Documentation](https://docs.nestjs.com)
-- [TypeORM Documentation](https://typeorm.io)
-- [PostgreSQL Documentation](https://www.postgresql.org/docs)
-- [JWT.io](https://jwt.io)
-
----
-
-## 📋 Checklist: Antes de Push
-
-- [ ] Tests pasando: `npm test`
-- [ ] TypeScript sin errores: `npm run type-check`
-- [ ] Linting correcto: `npm run lint`
-- [ ] Coverage >= 80% (85% en módulos críticos)
-- [ ] No hay `console.log` (usar logger)
-- [ ] Commits descriptivos
-- [ ] Sin `any` en TypeScript
-
----
-
-## 🤖 Agentes Claude Disponibles
-
-Para ayuda especializada:
-
-```
-@backend-dev "Crea el servicio para [feature]"
-@nomina-specialist "Implementa el cálculo de [concepto]"
-@database-admin "Crea entidad [nombre]"
-@qa-tester "Escribe tests para [módulo]"
-```
-
----
-
-**Estado**: 📋 Documentación completada (desarrollo pendiente)  
-**Próximo**: Fase 0 - Setup inicial  
-**Actualizado**: 2026-10-08
+Si el volumen de Docker ya existía antes de agregar la base de pruebas:
+`docker exec gestion-proyecto-db createdb -U gestion gestion_proyectos_test`.
