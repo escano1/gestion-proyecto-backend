@@ -7,7 +7,7 @@ Contrato de la API: [`docs/API.md`](https://github.com/escano1/gestion-proyecto-
 
 ## Desarrollo local
 
-Requisitos: Node.js 24.15+ (recomendado, igual que Docker y CI) o 22.22.3+ de la línea 22, y Docker.
+Requisitos: Node.js 24 (24.15 o posterior, igual que Docker y CI; también 22.22.3+) y Docker.
 
 ```bash
 cp .env.example .env          # genera JWT_SECRET y JWT_REFRESH_SECRET propios
