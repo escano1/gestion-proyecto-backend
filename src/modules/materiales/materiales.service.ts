@@ -1,22 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, type EntityManager, Repository } from 'typeorm';
-import { EstadoMaterial, MaterialProyecto } from './material-proyecto.entity.js';
+import { MaterialProyecto } from './material-proyecto.entity.js';
 import { Proyecto } from '../proyectos/proyecto.entity.js';
 import { AuditoriaService } from '../auditoria/auditoria.service.js';
 import { AccionAuditoria } from '../auditoria/registro-auditoria.entity.js';
 import type { UsuarioAutenticado } from '../../common/tipos/usuario-autenticado.js';
-import { hoyColombia } from '../../common/utils/fechas.js';
-import type {
-  ActualizarMaterialDto,
-  CrearMaterialDto,
-  FiltroMaterialesDto,
-} from './materiales.dto.js';
-import {
-  aMaterialRespuesta,
-  completarFechaEntrega,
-  type MaterialRespuesta,
-} from './reglas-materiales.js';
+import type { ActualizarMaterialDto, CrearMaterialDto } from './materiales.dto.js';
+import { aMaterialRespuesta, type MaterialRespuesta } from './reglas-materiales.js';
 
 const ENTIDAD = 'MaterialProyecto';
 
@@ -29,12 +20,11 @@ export class MaterialesService {
     private readonly auditoria: AuditoriaService,
   ) {}
 
-  async listar(proyectoId: number, { estado }: FiltroMaterialesDto): Promise<MaterialRespuesta[]> {
+  async listar(proyectoId: number): Promise<MaterialRespuesta[]> {
     await this.asegurarProyecto(this.dataSource.manager, proyectoId);
     const materiales = await this.materiales.find({
-      where: estado ? { proyectoId, estado } : { proyectoId },
-      relations: { solicitadoPor: true },
-      order: { fechaSolicitud: 'DESC', id: 'DESC' },
+      where: { proyectoId },
+      order: { id: 'DESC' },
     });
     return materiales.map(aMaterialRespuesta);
   }
@@ -46,22 +36,13 @@ export class MaterialesService {
   ): Promise<MaterialRespuesta> {
     return this.dataSource.transaction(async (m) => {
       await this.asegurarProyecto(m, proyectoId);
-      const hoy = hoyColombia();
-      const estado = dto.estado ?? EstadoMaterial.PENDIENTE;
       const material = await m.save(
         m.create(MaterialProyecto, {
           proyectoId,
           nombre: dto.nombre,
-          descripcion: dto.descripcion ?? null,
           unidadMedida: dto.unidadMedida,
           cantidadSolicitada: dto.cantidadSolicitada,
-          cantidadEntregada: 0,
-          estado,
-          fechaSolicitud: dto.fechaSolicitud ?? hoy,
-          fechaRequerida: dto.fechaRequerida ?? null,
-          fechaEntrega: completarFechaEntrega(estado, null, hoy),
-          observaciones: dto.observaciones ?? null,
-          solicitadoPorId: usuario.id,
+          precioUnitario: dto.precioUnitario,
         }),
       );
       await this.auditoria.registrar(
@@ -74,7 +55,7 @@ export class MaterialesService {
         },
         m,
       );
-      return this.obtenerRespuesta(m, material.id);
+      return aMaterialRespuesta(material);
     });
   }
 
@@ -87,24 +68,19 @@ export class MaterialesService {
       const material = await this.buscar(m, id);
       const antes = structuredClone(material);
       m.merge(MaterialProyecto, material, dto);
-      material.fechaEntrega = completarFechaEntrega(
-        material.estado,
-        material.fechaEntrega,
-        hoyColombia(),
-      );
-      await m.save(material);
+      const guardado = await m.save(material);
       await this.auditoria.registrar(
         {
           entidad: ENTIDAD,
           entidadId: id,
           accion: AccionAuditoria.ACTUALIZAR,
           antes,
-          despues: material,
+          despues: guardado,
           usuario,
         },
         m,
       );
-      return this.obtenerRespuesta(m, id);
+      return aMaterialRespuesta(guardado);
     });
   }
 
@@ -135,13 +111,5 @@ export class MaterialesService {
     const material = await m.findOneBy(MaterialProyecto, { id });
     if (!material) throw new NotFoundException('Material no encontrado');
     return material;
-  }
-
-  private async obtenerRespuesta(m: EntityManager, id: number): Promise<MaterialRespuesta> {
-    const material = await m.findOneOrFail(MaterialProyecto, {
-      where: { id },
-      relations: { solicitadoPor: true },
-    });
-    return aMaterialRespuesta(material);
   }
 }

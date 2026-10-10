@@ -1,5 +1,4 @@
 import {
-  CERO,
   Decimal,
   dec,
   redondear2,
@@ -23,13 +22,7 @@ import {
 import { TipoConcepto } from '../nomina.entity.js';
 import { calcularFsp } from './fondo-solidaridad.js';
 import { formatearNumero, formatearPesos, formatearPorcentaje } from './formato.js';
-import {
-  DIAS_MES_COMERCIAL,
-  diasComerciales,
-  rangoEfectivo,
-  type Periodo,
-  type RangoFechas,
-} from './periodo.js';
+import { DIAS_MES_COMERCIAL, type Periodo } from './periodo.js';
 import { calcularRetencionFuente, type DetalleRetencion } from './retencion-fuente.js';
 
 // Art. 18 Ley 100 de 1993 (mod. art. 5 Ley 797 de 2003): el IBC no puede superar 25 SMMLV.
@@ -68,8 +61,6 @@ export interface TrabajadorNomina {
   tipoJornada: TipoJornada;
   horasSemanales: number | null;
   aplicaAuxilioTransporte: boolean;
-  fechaIngreso: Fecha;
-  fechaRetiro: Fecha | null;
 }
 
 export interface ConceptoLiquidado {
@@ -109,20 +100,15 @@ export function liquidarTrabajador(
 ): LiquidacionTrabajador {
   const p = parametrosEn(periodo.fechaInicio);
   const datos = datosSalariales(trabajador);
-  const rango = rangoEfectivo(periodo, trabajador.fechaIngreso, trabajador.fechaRetiro);
   const alertas: string[] = [];
 
-  const { dentro, horasFuera } = separarHorasPorVinculo(horas, rango);
-  if (horasFuera.gt(0)) {
-    alertas.push(
-      `Se omitieron ${formatearNumero(horasFuera)} h registradas fuera del vínculo laboral ` +
-        `(ingreso ${trabajador.fechaIngreso}${trabajador.fechaRetiro ? `, retiro ${trabajador.fechaRetiro}` : ''}).`,
-    );
-  }
-
+  const dentro = horas.filter((h) => dec(h.horas).gt(0));
   const esMensual = trabajador.tipoSalario === TipoSalario.MENSUAL;
-  const diasLaborados = calcularDiasLaborados(esMensual, rango, dentro);
-  const diasBase = esMensual ? diasLaborados || periodo.diasNominales : periodo.diasNominales;
+  const diasBase = periodo.diasNominales;
+  // Mensual: la semana completa. Por hora: los días distintos con horas registradas.
+  const diasLaborados = esMensual
+    ? diasBase
+    : Math.min(new Set(dentro.map((h) => h.fecha)).size, diasBase);
 
   // Devengados salariales (base del IBC).
   const salariales: ConceptoSinOrden[] = [];
@@ -197,10 +183,8 @@ export function liquidarTrabajador(
         `(${formatearPesos(p.smmlv)}) para jornada completa.`,
     );
   }
-  if (rango) {
-    const cambios = cambiosDeVigencia(periodo.fechaInicio, rango.hasta, parametrosEn);
-    if (cambios) alertas.push(cambios);
-  }
+  const cambios = cambiosDeVigencia(periodo.fechaInicio, periodo.fechaFin, parametrosEn);
+  if (cambios) alertas.push(cambios);
 
   return {
     diasLaborados,
@@ -272,39 +256,6 @@ function datosSalariales(t: TrabajadorNomina): DatosSalariales {
     salarioBase: t.salarioBase,
     horasSemanales: t.tipoJornada === TipoJornada.PARCIAL ? t.horasSemanales : null,
   };
-}
-
-function separarHorasPorVinculo(
-  horas: HoraTrabajada[],
-  rango: RangoFechas | null,
-): { dentro: HoraTrabajada[]; horasFuera: Decimal } {
-  const dentro: HoraTrabajada[] = [];
-  let horasFuera = CERO;
-  for (const hora of horas) {
-    const cantidad = dec(hora.horas);
-    if (cantidad.lte(0)) continue;
-    if (rango && hora.fecha >= rango.desde && hora.fecha <= rango.hasta) {
-      dentro.push(hora);
-    } else {
-      horasFuera = horasFuera.plus(cantidad);
-    }
-  }
-  return { dentro, horasFuera };
-}
-
-/**
- * MENSUAL: días comerciales del vínculo en el periodo. POR_HORA: fechas distintas con horas,
- * sin superar los días comerciales (un día 31 trabajado no agrega un día 31 de auxilio).
- */
-function calcularDiasLaborados(
-  esMensual: boolean,
-  rango: RangoFechas | null,
-  horas: HoraTrabajada[],
-): number {
-  if (!rango) return 0;
-  const comerciales = diasComerciales(rango.desde, rango.hasta);
-  if (esMensual) return comerciales;
-  return Math.min(new Set(horas.map((h) => h.fecha)).size, comerciales);
 }
 
 function conceptoSalario(salarioBase: number, dias: number): ConceptoSinOrden {
@@ -436,8 +387,8 @@ function formatearParametro(valor: Decimal, unidad: UnidadParametro): string {
 }
 
 /**
- * Describe los parámetros que cambian de vigencia entre el inicio del periodo (valores de
- * los conceptos del periodo) y el último día de vínculo del trabajador; null si no cambian.
+ * Describe los parámetros que cambian de vigencia entre el inicio y el fin del periodo
+ * (los conceptos del periodo usan los vigentes al inicio); null si no cambian.
  */
 function cambiosDeVigencia(
   inicioPeriodo: Fecha,

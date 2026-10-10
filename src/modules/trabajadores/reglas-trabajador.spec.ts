@@ -1,7 +1,14 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
+import type { Fecha } from '../../common/utils/fechas.js';
+import { CodigoParametro } from '../parametros/parametro-legal.entity.js';
+import {
+  ResolutorParametros,
+  type FilaParametro,
+} from '../parametros/resolutor-parametros.js';
 import {
   cambioAfectaNomina,
+  calcularAuxilioTransporte,
   erroresTrabajador,
   normalizarJornada,
   patronBusqueda,
@@ -18,9 +25,6 @@ import { ActualizarTrabajadorDto, CrearTrabajadorDto } from './trabajadores.dto.
 const base = {
   tipoJornada: TipoJornada.COMPLETA,
   horasSemanales: null as number | null,
-  fechaIngreso: '2026-01-15',
-  fechaRetiro: null as string | null,
-  estado: EstadoTrabajador.ACTIVO,
 };
 
 describe('normalizarJornada', () => {
@@ -51,25 +55,6 @@ describe('erroresTrabajador', () => {
     ).toEqual([]);
   });
 
-  it('exige fechaRetiro >= fechaIngreso (el mismo día es válido)', () => {
-    expect(erroresTrabajador({ ...base, fechaRetiro: '2026-01-14' })).toEqual([
-      'La fecha de retiro no puede ser anterior a la fecha de ingreso',
-    ]);
-    expect(erroresTrabajador({ ...base, fechaRetiro: '2026-01-15' })).toEqual([]);
-  });
-
-  it('exige fechaRetiro a un trabajador INACTIVO', () => {
-    expect(erroresTrabajador({ ...base, estado: EstadoTrabajador.INACTIVO })).toEqual([
-      'Un trabajador INACTIVO debe tener fecha de retiro',
-    ]);
-    expect(
-      erroresTrabajador({
-        ...base,
-        estado: EstadoTrabajador.INACTIVO,
-        fechaRetiro: '2026-06-30',
-      }),
-    ).toEqual([]);
-  });
 });
 
 describe('cambioAfectaNomina', () => {
@@ -78,9 +63,8 @@ describe('cambioAfectaNomina', () => {
     tipoSalario: TipoSalario.MENSUAL,
     tipoJornada: TipoJornada.COMPLETA,
     horasSemanales: null as number | null,
-    fechaIngreso: '2026-01-15',
-    fechaRetiro: null as string | null,
     aplicaAuxilioTransporte: true,
+    estado: EstadoTrabajador.ACTIVO,
   };
 
   it('no marca recálculo si los datos de nómina no cambian', () => {
@@ -92,14 +76,58 @@ describe('cambioAfectaNomina', () => {
     ['tipoSalario', TipoSalario.POR_HORA],
     ['tipoJornada', TipoJornada.PARCIAL],
     ['horasSemanales', 24],
-    ['fechaIngreso', '2026-02-01'],
-    ['fechaRetiro', '2026-12-31'],
     ['aplicaAuxilioTransporte', false],
+    ['estado', EstadoTrabajador.INACTIVO],
   ])('marca recálculo si cambia %s', (campo, valor) => {
     expect(cambioAfectaNomina(laboral, { ...laboral, [campo]: valor })).toBe(true);
   });
 });
+describe('calcularAuxilioTransporte', () => {
+  // Vigencias sembradas en la base de datos (migración DatosIniciales).
+  const VIGENCIAS: [CodigoParametro, number, Fecha][] = [
+    [CodigoParametro.SMMLV, 1_750_905, '2026-01-01'],
+    [CodigoParametro.AUXILIO_TRANSPORTE, 249_095, '2026-01-01'],
+    [CodigoParametro.UVT, 52_374, '2026-01-01'],
+    [CodigoParametro.JORNADA_MAXIMA_SEMANAL, 42, '2026-07-15'],
+    [CodigoParametro.RECARGO_NOCTURNO, 0.35, '2024-01-01'],
+    [CodigoParametro.RECARGO_EXTRA_DIURNA, 0.25, '2024-01-01'],
+    [CodigoParametro.RECARGO_EXTRA_NOCTURNA, 0.75, '2024-01-01'],
+    [CodigoParametro.RECARGO_DOMINICAL_FESTIVO, 0.9, '2026-07-01'],
+    [CodigoParametro.APORTE_SALUD_EMPLEADO, 0.04, '2024-01-01'],
+    [CodigoParametro.APORTE_PENSION_EMPLEADO, 0.04, '2024-01-01'],
+    [CodigoParametro.LIMITE_HORAS_EXTRA_DIA, 2, '2024-01-01'],
+    [CodigoParametro.LIMITE_HORAS_EXTRA_SEMANA, 12, '2024-01-01'],
+  ];
+  const parametros = new ResolutorParametros(
+    VIGENCIAS.map(([codigo, valor, vigenteDesde]): FilaParametro => ({ codigo, valor, vigenteDesde })),
+  ).en('2026-10-09');
 
+  it('aplica si el salario mensual es menor o igual a 2 SMMLV', () => {
+    expect(
+      calcularAuxilioTransporte({ tipoSalario: TipoSalario.MENSUAL, salarioBase: 2_100_000, horasSemanales: null }, parametros),
+    ).toBe(true);
+    expect(
+      calcularAuxilioTransporte({ tipoSalario: TipoSalario.MENSUAL, salarioBase: 3_501_810, horasSemanales: null }, parametros),
+    ).toBe(true);
+  });
+
+  it('no aplica si el salario mensual supera 2 SMMLV', () => {
+    expect(
+      calcularAuxilioTransporte({ tipoSalario: TipoSalario.MENSUAL, salarioBase: 3_501_811, horasSemanales: null }, parametros),
+    ).toBe(false);
+  });
+
+  it('convierte el valor por hora a su equivalente mensual (jornada completa vigente)', () => {
+    // 12.000 × 210 h = 2.520.000 ≤ 2 SMMLV
+    expect(
+      calcularAuxilioTransporte({ tipoSalario: TipoSalario.POR_HORA, salarioBase: 12_000, horasSemanales: null }, parametros),
+    ).toBe(true);
+    // 20.000 × 210 h = 4.200.000 > 2 SMMLV
+    expect(
+      calcularAuxilioTransporte({ tipoSalario: TipoSalario.POR_HORA, salarioBase: 20_000, horasSemanales: null }, parametros),
+    ).toBe(false);
+  });
+});
 describe('patronBusqueda', () => {
   it('envuelve con comodines y escapa los del texto', () => {
     expect(patronBusqueda('ana')).toBe('%ana%');
@@ -116,7 +144,6 @@ describe('DTOs de trabajador', () => {
     tipoSalario: TipoSalario.MENSUAL,
     salarioBase: 1_750_905,
     tipoContrato: TipoContrato.INDEFINIDO,
-    fechaIngreso: '2026-01-15',
   };
   const propiedadesConError = async <T extends object>(clase: new () => T, datos: object) =>
     (await validate(plainToInstance(clase, datos))).map((e) => e.property);
@@ -128,15 +155,14 @@ describe('DTOs de trabajador', () => {
     expect(dto.numeroDocumento).toBe('1020304050');
   });
 
-  it('valida salario positivo, horas 1–48 y fechas', async () => {
+  it('valida salario positivo y horas 1–48', async () => {
     expect(
       await propiedadesConError(CrearTrabajadorDto, {
         ...valido,
         salarioBase: 0,
         horasSemanales: 60,
-        fechaIngreso: '2026-02-30',
       }),
-    ).toEqual(['salarioBase', 'horasSemanales', 'fechaIngreso']);
+    ).toEqual(['salarioBase', 'horasSemanales']);
   });
 
   it('rechaza null en campos no anulables con valor por defecto', async () => {
@@ -148,7 +174,6 @@ describe('DTOs de trabajador', () => {
   it('en la edición acepta null solo en campos anulables', async () => {
     expect(
       await propiedadesConError(ActualizarTrabajadorDto, {
-        fechaRetiro: null,
         email: null,
         horasSemanales: null,
       }),

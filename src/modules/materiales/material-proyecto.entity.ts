@@ -10,23 +10,9 @@ import {
   type Relation,
 } from 'typeorm';
 import { Proyecto } from '../proyectos/proyecto.entity.js';
-import { Usuario } from '../usuarios/usuario.entity.js';
 import { transformadorNumerico } from '../../common/utils/transformadores.js';
 
-export enum EstadoMaterial {
-  PENDIENTE = 'PENDIENTE',
-  SOLICITADO = 'SOLICITADO',
-  ENTREGADO = 'ENTREGADO',
-  INSTALADO = 'INSTALADO',
-}
-
-const cantidad = {
-  type: 'numeric',
-  precision: 12,
-  scale: 2,
-  transformer: transformadorNumerico,
-} as const;
-
+/** Material de un proyecto: su costo es `precioUnitario × cantidadSolicitada`. */
 @Entity('materiales_proyecto')
 @Index(['proyectoId'])
 export class MaterialProyecto {
@@ -43,39 +29,14 @@ export class MaterialProyecto {
   @Column({ type: 'varchar', length: 150 })
   nombre: string;
 
-  @Column({ type: 'text', nullable: true })
-  descripcion: string | null;
-
   @Column({ type: 'varchar', length: 20 })
   unidadMedida: string;
 
-  @Column(cantidad)
+  @Column({ type: 'numeric', precision: 12, scale: 2, transformer: transformadorNumerico })
   cantidadSolicitada: number;
 
-  @Column({ ...cantidad, default: 0 })
-  cantidadEntregada: number;
-
-  @Column({ type: 'varchar', length: 12, default: EstadoMaterial.PENDIENTE })
-  estado: EstadoMaterial;
-
-  @Column({ type: 'date' })
-  fechaSolicitud: string;
-
-  @Column({ type: 'date', nullable: true })
-  fechaRequerida: string | null;
-
-  @Column({ type: 'date', nullable: true })
-  fechaEntrega: string | null;
-
-  @Column({ type: 'int' })
-  solicitadoPorId: number;
-
-  @ManyToOne(() => Usuario, { nullable: false })
-  @JoinColumn({ name: 'solicitado_por_id' })
-  solicitadoPor: Relation<Usuario>;
-
-  @Column({ type: 'text', nullable: true })
-  observaciones: string | null;
+  @Column({ type: 'numeric', precision: 14, scale: 2, transformer: transformadorNumerico })
+  precioUnitario: number;
 
   @CreateDateColumn({ type: 'timestamptz' })
   creadoEn: Date;

@@ -5,8 +5,8 @@ import { crearAppPruebas, iniciarSesion, reiniciarBaseDatos } from './app-prueba
 
 /**
  * Flujo de punta a punta contra PostgreSQL real con las migraciones del proyecto.
- * Periodo usado: segunda quincena de septiembre de 2026 (jornada 42 h → valor hora = salario/210,
- * recargo dominical 0,90), equivalente al caso de aceptación A de la nómina.
+ * Semana usada: 21 al 27 de septiembre de 2026 (jornada 42 h → valor hora = salario/210,
+ * recargo dominical 0,90), equivalente al caso de aceptación A de la nómina semanal.
  */
 describe('Flujo completo (e2e)', () => {
   let app: INestApplication<App>;
@@ -107,7 +107,7 @@ describe('Flujo completo (e2e)', () => {
       const ana = await http()
         .post('/api/trabajadores')
         .set(con(admin))
-        .send({ ...comunes, nombre: 'Ana Torres', numeroDocumento: '1001', tipoSalario: 'MENSUAL', salarioBase: 2_100_000, fechaIngreso: '2025-01-01' })
+        .send({ ...comunes, nombre: 'Ana Torres', numeroDocumento: '1001', tipoSalario: 'MENSUAL', salarioBase: 2_100_000 })
         .expect(201);
       ids.ana = ana.body.id;
       expect(ana.body).toMatchObject({ tipoJornada: 'COMPLETA', aplicaAuxilioTransporte: true, estado: 'ACTIVO', salarioBase: 2_100_000 });
@@ -115,42 +115,68 @@ describe('Flujo completo (e2e)', () => {
       const luis = await http()
         .post('/api/trabajadores')
         .set(con(admin))
-        .send({ ...comunes, nombre: 'Luis Gómez', numeroDocumento: '1002', tipoSalario: 'POR_HORA', salarioBase: 12_000, fechaIngreso: '2025-06-01' })
+        .send({ ...comunes, nombre: 'Luis Gómez', numeroDocumento: '1002', tipoSalario: 'POR_HORA', salarioBase: 12_000 })
         .expect(201);
       ids.luis = luis.body.id;
 
       await http()
         .post('/api/trabajadores')
         .set(con(admin))
-        .send({ ...comunes, nombre: 'Dup', numeroDocumento: '1001', tipoSalario: 'MENSUAL', salarioBase: 1, fechaIngreso: '2025-01-01' })
+        .send({ ...comunes, nombre: 'Dup', numeroDocumento: '1001', tipoSalario: 'MENSUAL', salarioBase: 1 })
         .expect(409);
       await http()
         .post('/api/trabajadores')
         .set(con(admin))
-        .send({ ...comunes, nombre: 'Parcial', numeroDocumento: '1003', tipoSalario: 'MENSUAL', salarioBase: 900_000, fechaIngreso: '2025-01-01', tipoJornada: 'PARCIAL' })
+        .send({ ...comunes, nombre: 'Parcial', numeroDocumento: '1003', tipoSalario: 'MENSUAL', salarioBase: 900_000, tipoJornada: 'PARCIAL' })
         .expect(400);
     });
 
-    it('asigna trabajadores al proyecto sin solapamientos', async () => {
+    it('asigna trabajadores al proyecto una sola vez', async () => {
       for (const trabajadorId of [ids.ana, ids.luis]) {
         await http()
           .post('/api/asignaciones')
           .set(con(admin))
-          .send({ trabajadorId, proyectoId: ids.proyecto, fechaInicio: '2026-09-01', rolEnProyecto: 'Montaje' })
+          .send({ trabajadorId, proyectoId: ids.proyecto, rolEnProyecto: 'Montaje' })
           .expect(201);
       }
       await http()
         .post('/api/asignaciones')
         .set(con(admin))
-        .send({ trabajadorId: ids.ana, proyectoId: ids.proyecto, fechaInicio: '2026-09-10' })
+        .send({ trabajadorId: ids.ana, proyectoId: ids.proyecto })
         .expect(409);
 
       const lista = await http().get(`/api/asignaciones?proyectoId=${ids.proyecto}`).set(con(admin)).expect(200);
       expect(lista.body).toHaveLength(2);
-      expect(lista.body[0]).toMatchObject({ vigente: true, proyecto: { codigo: 'PRY-001' } });
+      expect(lista.body[0]).toMatchObject({ proyecto: { codigo: 'PRY-001' } });
 
       const historial = await http().get(`/api/trabajadores/${ids.ana}/asignaciones`).set(con(admin)).expect(200);
       expect(historial.body).toHaveLength(1);
+    });
+
+    it('elimina trabajadores y proyectos sin historial', async () => {
+      const trabajador = await http()
+        .post('/api/trabajadores')
+        .set(con(admin))
+        .send({
+          tipoDocumento: 'CC',
+          tipoContrato: 'INDEFINIDO',
+          cargo: 'Temporal',
+          nombre: 'Temporal Pérez',
+          numeroDocumento: '9999',
+          tipoSalario: 'MENSUAL',
+          salarioBase: 1_000_000,
+        })
+        .expect(201);
+      await http().delete(`/api/trabajadores/${trabajador.body.id}`).set(con(admin)).expect(204);
+      await http().get(`/api/trabajadores/${trabajador.body.id}`).set(con(admin)).expect(404);
+
+      const proyecto = await http()
+        .post('/api/proyectos')
+        .set(con(admin))
+        .send({ codigo: 'PRY-TEMP', nombre: 'Temporal', fechaInicio: '2026-09-01' })
+        .expect(201);
+      await http().delete(`/api/proyectos/${proyecto.body.id}`).set(con(admin)).expect(204);
+      await http().get(`/api/proyectos/${proyecto.body.id}`).set(con(admin)).expect(404);
     });
 
     it('expone los tipos de hora con el recargo vigente por fecha', async () => {
@@ -170,9 +196,9 @@ describe('Flujo completo (e2e)', () => {
   describe('registro de horas', () => {
     const horas = (codigo: string, cantidad: number) => ({ tipoHoraId: ids.tipos[codigo], horas: cantidad });
 
-    it('guarda la semana por lote y devuelve alertas legales', async () => {
+    it('guarda las horas de cada día de la semana por lote y devuelve alertas legales', async () => {
       const ana = [
-        { fecha: '2026-09-20', detalles: [horas('DOM', 2)] },
+        { fecha: '2026-09-27', detalles: [horas('DOM', 2)] },
         { fecha: '2026-09-21', detalles: [horas('NOC', 3)] },
         { fecha: '2026-09-22', detalles: [horas('HED', 4)] },
       ].map((r) => ({ ...r, trabajadorId: ids.ana, proyectoId: ids.proyecto }));
@@ -222,7 +248,11 @@ describe('Flujo completo (e2e)', () => {
         .expect(200);
       expect(lista.body).toMatchObject({ total: 3, pagina: 1, limite: 2 });
       expect(lista.body.datos).toHaveLength(2);
-      const registro = lista.body.datos.find((r: { fecha: string }) => r.fecha === '2026-09-21');
+      const delDia = await http()
+        .get(`/api/registro-horas?trabajadorId=${ids.ana}&desde=2026-09-21&hasta=2026-09-21`)
+        .set(con(admin))
+        .expect(200);
+      const registro = delDia.body.datos[0];
       expect(registro).toMatchObject({ totalHoras: 3, trabajador: { nombre: 'Ana Torres' }, proyecto: { codigo: 'PRY-001' } });
       expect(registro.detalles[0]).toMatchObject({ codigo: 'NOC', horas: 3 });
       ids.registroAna = registro.id;
@@ -230,16 +260,17 @@ describe('Flujo completo (e2e)', () => {
   });
 
   describe('nómina', () => {
-    it('liquida la quincena con los valores exactos', async () => {
+    it('liquida la semana con los valores exactos', async () => {
       const respuesta = await http()
         .post('/api/nomina/liquidaciones')
         .set(con(admin))
-        .send({ tipoPeriodo: 'QUINCENAL', anio: 2026, mes: 9, quincena: 2 })
+        .send({ fecha: '2026-09-23' })
         .expect(201);
       ids.liquidacion = respuesta.body.id;
       expect(respuesta.body).toMatchObject({
-        fechaInicio: '2026-09-16',
-        fechaFin: '2026-09-30',
+        anio: 2026,
+        fechaInicio: '2026-09-21',
+        fechaFin: '2026-09-27',
         estado: 'BORRADOR',
         numeroTrabajadores: 2,
         requiereRecalculo: false,
@@ -248,12 +279,13 @@ describe('Flujo completo (e2e)', () => {
       const porNombre = (nombre: string) =>
         respuesta.body.nominas.find((n: { nombreTrabajador: string }) => n.nombreTrabajador === nombre);
       expect(porNombre('Ana Torres')).toMatchObject({
-        diasLaborados: 15,
-        ibc: 1_128_500,
-        totalDevengado: 1_253_048,
-        totalDeducciones: 90_280,
-        netoPagar: 1_162_768,
+        diasLaborados: 7,
+        ibc: 568_500,
+        totalDevengado: 626_622,
+        totalDeducciones: 45_480,
+        netoPagar: 581_142,
       });
+      // Luis trabajó 5 días: auxilio de transporte de 5/30.
       expect(porNombre('Luis Gómez')).toMatchObject({
         diasLaborados: 5,
         ibc: 544_800,
@@ -261,7 +293,7 @@ describe('Flujo completo (e2e)', () => {
         totalDeducciones: 43_584,
         netoPagar: 542_732,
       });
-      expect(respuesta.body.totalNeto).toBe(1_162_768 + 542_732);
+      expect(respuesta.body.totalNeto).toBe(581_142 + 542_732);
     });
 
     it('detalla los conceptos del desprendible', async () => {
@@ -271,13 +303,13 @@ describe('Flujo completo (e2e)', () => {
 
       const valor = (codigo: string) =>
         desprendible.body.conceptos.find((c: { codigo: string }) => c.codigo === codigo)?.valor;
-      expect(valor('SALARIO')).toBe(1_050_000);
+      expect(valor('SALARIO')).toBe(490_000);
       expect(valor('RECARGO_NOC')).toBe(10_500);
       expect(valor('RECARGO_DOM')).toBe(18_000);
       expect(valor('HORAS_HED')).toBe(50_000);
-      expect(valor('AUX_TRANSPORTE')).toBe(124_548);
-      expect(valor('SALUD')).toBe(45_140);
-      expect(valor('PENSION')).toBe(45_140);
+      expect(valor('AUX_TRANSPORTE')).toBe(58_122);
+      expect(valor('SALUD')).toBe(22_740);
+      expect(valor('PENSION')).toBe(22_740);
       expect(desprendible.body).toMatchObject({ valorHora: 10_000, liquidacion: { id: ids.liquidacion } });
       expect(desprendible.body.parametros).toMatchObject({ smmlv: 1_750_905, jornadaMaximaSemanal: 42 });
     });
@@ -303,15 +335,16 @@ describe('Flujo completo (e2e)', () => {
       expect(cerrada.body.estado).toBe('CERRADA');
 
       await http()
-        .post('/api/registro-horas')
+        .patch(`/api/registro-horas/${ids.registroAna}`)
         .set(con(admin))
-        .send({ trabajadorId: ids.ana, proyectoId: ids.proyecto, fecha: '2026-09-29', detalles: [{ tipoHoraId: ids.tipos.HED, horas: 1 }] })
+        .send({ detalles: [{ tipoHoraId: ids.tipos.HED, horas: 1 }] })
         .expect(409);
+      await http().delete(`/api/registro-horas/${ids.registroAna}`).set(con(admin)).expect(409);
       await http().delete(`/api/nomina/liquidaciones/${ids.liquidacion}`).set(con(admin)).expect(409);
       await http()
         .post('/api/nomina/liquidaciones')
         .set(con(admin))
-        .send({ tipoPeriodo: 'MENSUAL', anio: 2026, mes: 9 })
+        .send({ fecha: '2026-09-22' })
         .expect(409);
     });
 
@@ -339,71 +372,27 @@ describe('Flujo completo (e2e)', () => {
   });
 
   describe('operación del proyecto', () => {
-    it('gestiona materiales, herramientas y avance por hitos', async () => {
+    it('gestiona los materiales del proyecto', async () => {
       const material = await http()
         .post(`/api/proyectos/${ids.proyecto}/materiales`)
         .set(con(admin))
-        .send({ nombre: 'Cable 4/0 AWG', unidadMedida: 'm', cantidadSolicitada: 300, fechaRequerida: '2026-09-15' })
+        .send({ nombre: 'Cable 4/0 AWG', unidadMedida: 'm', cantidadSolicitada: 300, precioUnitario: 12_500 })
         .expect(201);
-      expect(material.body).toMatchObject({ estado: 'PENDIENTE', solicitadoPor: { nombre: 'Admin Pruebas' } });
-      const entregado = await http()
+      expect(material.body).toMatchObject({ nombre: 'Cable 4/0 AWG', precioUnitario: 12_500, costo: 3_750_000 });
+      // El precio es obligatorio.
+      await http()
+        .post(`/api/proyectos/${ids.proyecto}/materiales`)
+        .set(con(admin))
+        .send({ nombre: 'Sin precio', unidadMedida: 'm', cantidadSolicitada: 1 })
+        .expect(400);
+      const editado = await http()
         .patch(`/api/materiales/${material.body.id}`)
         .set(con(admin))
-        .send({ estado: 'ENTREGADO', cantidadEntregada: 300 })
+        .send({ precioUnitario: 10_000 })
         .expect(200);
-      expect(entregado.body.fechaEntrega).toEqual(expect.any(String));
-
-      const herramienta = await http()
-        .post(`/api/proyectos/${ids.proyecto}/herramientas`)
-        .set(con(admin))
-        .send({ nombre: 'Pinza voltiamperimétrica', cantidad: 1, responsableId: ids.ana, fechaAsignacion: '2026-09-01', fechaDevolucionPrevista: '2026-09-10' })
-        .expect(201);
-      expect(herramienta.body).toMatchObject({ vencida: true, responsable: { nombre: 'Ana Torres' } });
-
-      await http()
-        .post(`/api/proyectos/${ids.proyecto}/hitos`)
-        .set(con(admin))
-        .send({ nombre: 'Diseño', fechaPlaneada: '2026-09-10', peso: 40, porcentajeAvance: 100 })
-        .expect(201);
-      await http()
-        .post(`/api/proyectos/${ids.proyecto}/hitos`)
-        .set(con(admin))
-        .send({ nombre: 'Montaje', fechaPlaneada: '2099-12-31', peso: 60, porcentajeAvance: 50 })
-        .expect(201);
-      await http()
-        .post(`/api/proyectos/${ids.proyecto}/hitos`)
-        .set(con(admin))
-        .send({ nombre: 'Excedido', fechaPlaneada: '2099-12-31', peso: 10 })
-        .expect(400);
-
-      const avance = await http().get(`/api/proyectos/${ids.proyecto}/avance`).set(con(admin)).expect(200);
-      expect(avance.body).toMatchObject({ avanceReal: 70, avancePlaneado: 40, estado: 'ADELANTADO', sumaPesos: 100 });
-    });
-
-    it('registra bitácora con adjuntos', async () => {
-      const png = Buffer.from(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
-        'base64',
-      );
-      const entrada = await http()
-        .post(`/api/proyectos/${ids.proyecto}/bitacora`)
-        .set(con(admin))
-        .field('fecha', '2026-09-22')
-        .field('descripcion', 'Tendido de cable en bandeja')
-        .attach('archivos', png, { filename: 'foto.png', contentType: 'image/png' })
-        .expect(201);
-      expect(entrada.body.adjuntos).toHaveLength(1);
-
-      const adjunto = await http().get(`/api/bitacora/adjuntos/${entrada.body.adjuntos[0].id}`).set(con(admin)).expect(200);
-      expect(adjunto.headers['content-type']).toMatch(/image\/png/);
-
-      await http()
-        .post(`/api/proyectos/${ids.proyecto}/bitacora`)
-        .set(con(admin))
-        .field('fecha', '2026-09-22')
-        .field('descripcion', 'Archivo no permitido')
-        .attach('archivos', Buffer.from('MZ'), { filename: 'virus.exe', contentType: 'application/x-msdownload' })
-        .expect(400);
+      expect(editado.body).toMatchObject({ precioUnitario: 10_000, costo: 3_000_000 });
+      const lista = await http().get(`/api/proyectos/${ids.proyecto}/materiales`).set(con(admin)).expect(200);
+      expect(lista.body).toHaveLength(1);
     });
   });
 
@@ -431,8 +420,8 @@ describe('Flujo completo (e2e)', () => {
         .set(con(admin))
         .expect(200);
       const tipos = respuesta.body.alertas.map((a: { tipo: string; nombre: string }) => `${a.tipo}:${a.nombre}`);
-      expect(tipos).toContain('EXTRA_DIA:Ana Torres');
       expect(tipos).toContain('JORNADA_SEMANA:Luis Gómez');
+      expect(tipos).toContain('EXTRA_DIA:Ana Torres');
     });
 
     it('arma el resumen del proyecto y el dashboard', async () => {
@@ -440,25 +429,75 @@ describe('Flujo completo (e2e)', () => {
         .get(`/api/reportes/proyectos/${ids.proyecto}/resumen`)
         .set(con(admin))
         .expect(200);
-      expect(resumen.body).toMatchObject({ costoManoObra: 673_300, horas: { total: 53 } });
+      expect(resumen.body).toMatchObject({
+        costoManoObra: 673_300,
+        costoMateriales: 3_000_000,
+        gastoTotal: 3_673_300,
+        horas: { total: 53 },
+      });
 
       const dashboard = await http().get('/api/reportes/dashboard').set(con(consulta)).expect(200);
       expect(dashboard.body).toMatchObject({ proyectosActivos: 2, trabajadoresActivos: 2, ultimaLiquidacion: null });
       const dashboardAdmin = await http().get('/api/reportes/dashboard').set(con(admin)).expect(200);
       expect(dashboardAdmin.body.ultimaLiquidacion).toMatchObject({ id: ids.liquidacion });
 
-      await http().get('/api/reportes/pendientes').set(con(admin)).expect(200);
-      await http().get('/api/reportes/avance-proyectos').set(con(admin)).expect(200);
       await http().get('/api/reportes/nomina-periodos?anio=2026').set(con(consulta)).expect(403);
     });
 
     it('deja trazabilidad de horas y nómina', async () => {
       const horas = await http().get('/api/auditoria?entidad=RegistroHoras').set(con(admin)).expect(200);
-      expect(horas.body.total).toBeGreaterThanOrEqual(9);
+      expect(horas.body.total).toBeGreaterThanOrEqual(8);
       const nomina = await http().get('/api/auditoria?entidad=LiquidacionNomina').set(con(admin)).expect(200);
       const acciones = nomina.body.datos.map((a: { accion: string }) => a.accion);
       expect(acciones).toEqual(expect.arrayContaining(['CALCULAR', 'CERRAR']));
       expect(nomina.body.datos[0].usuarioEmail).toBe('admin@pruebas.co');
+    });
+  });
+
+  describe('eliminación con todas sus relaciones', () => {
+    const SEMANA = '2026-09-14';
+
+    it('elimina un trabajador con horas, asignaciones y nómina, y recalcula los totales', async () => {
+      const comunes = { tipoDocumento: 'CC', tipoContrato: 'INDEFINIDO', cargo: 'Auxiliar', tipoSalario: 'MENSUAL' };
+      const trabajador = await http()
+        .post('/api/trabajadores')
+        .set(con(admin))
+        .send({ ...comunes, nombre: 'Borrar Pérez', numeroDocumento: '7777', salarioBase: 1_800_000 })
+        .expect(201);
+      const proyecto = await http()
+        .post('/api/proyectos')
+        .set(con(admin))
+        .send({ codigo: 'PRY-BORRAR', nombre: 'Para borrar', cliente: 'X', ubicacion: 'Y', fechaInicio: '2026-09-01' })
+        .expect(201);
+      for (const trabajadorId of [trabajador.body.id, ids.ana]) {
+        await http().post('/api/asignaciones').set(con(admin)).send({ trabajadorId, proyectoId: proyecto.body.id }).expect(201);
+        await http()
+          .post('/api/registro-horas')
+          .set(con(admin))
+          .send({ trabajadorId, proyectoId: proyecto.body.id, fecha: SEMANA, detalles: [{ tipoHoraId: ids.tipos.ORD, horas: 8 }] })
+          .expect(201);
+      }
+      const liquidacion = await http().post('/api/nomina/liquidaciones').set(con(admin)).send({ fecha: SEMANA }).expect(201);
+      expect(liquidacion.body.numeroTrabajadores).toBe(2);
+
+      // Con horas, asignación y nómina: se elimina todo.
+      await http().delete(`/api/trabajadores/${trabajador.body.id}`).set(con(admin)).expect(204);
+      await http().get(`/api/trabajadores/${trabajador.body.id}`).set(con(admin)).expect(404);
+      const horas = await http().get(`/api/registro-horas?trabajadorId=${trabajador.body.id}`).set(con(admin)).expect(200);
+      expect(horas.body.total).toBe(0);
+      const despues = await http().get(`/api/nomina/liquidaciones/${liquidacion.body.id}`).set(con(admin)).expect(200);
+      expect(despues.body).toMatchObject({ numeroTrabajadores: 1, requiereRecalculo: true });
+      expect(despues.body.totalNeto).toBe(despues.body.nominas[0].netoPagar);
+
+      // Proyecto con horas y asignaciones: también.
+      await http().delete(`/api/proyectos/${proyecto.body.id}`).set(con(admin)).expect(204);
+      await http().get(`/api/proyectos/${proyecto.body.id}`).set(con(admin)).expect(404);
+      const horasProyecto = await http().get(`/api/registro-horas?proyectoId=${proyecto.body.id}`).set(con(admin)).expect(200);
+      expect(horasProyecto.body.total).toBe(0);
+      // Ana sigue existiendo y conserva sus asignaciones y horas de los demás proyectos.
+      await http().get(`/api/trabajadores/${ids.ana}`).set(con(admin)).expect(200);
+      const asignacionesAna = await http().get(`/api/trabajadores/${ids.ana}/asignaciones`).set(con(admin)).expect(200);
+      expect(asignacionesAna.body).toHaveLength(1);
     });
   });
 });

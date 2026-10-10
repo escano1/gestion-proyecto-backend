@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseIntPipe,
   Patch,
@@ -47,5 +49,12 @@ export class TrabajadoresController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ) {
     return this.trabajadores.actualizar(id, dto, usuario);
+  }
+
+  @Delete(':id')
+  @Roles(Rol.NOMINA)
+  @HttpCode(204)
+  eliminar(@Param('id', ParseIntPipe) id: number, @UsuarioActual() usuario: UsuarioAutenticado) {
+    return this.trabajadores.eliminar(id, usuario);
   }
 }

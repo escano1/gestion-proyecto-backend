@@ -1,19 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Not, Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { dec, sumar } from '../../common/utils/dinero.js';
-import { hoyColombia } from '../../common/utils/fechas.js';
 import { AsignacionProyecto } from '../asignaciones/asignacion-proyecto.entity.js';
-import {
-  EstadoHerramienta,
-  HerramientaProyecto,
-} from '../herramientas/herramienta-proyecto.entity.js';
-import { calcularAvance } from '../hitos/avance.js';
-import { HitoProyecto } from '../hitos/hito-proyecto.entity.js';
-import {
-  EstadoMaterial,
-  MaterialProyecto,
-} from '../materiales/material-proyecto.entity.js';
+import { MaterialProyecto } from '../materiales/material-proyecto.entity.js';
+import { costoMaterial } from '../materiales/reglas-materiales.js';
 import { LiquidacionNomina } from '../nomina/nomina.entity.js';
 import { EstadoProyecto, Proyecto } from '../proyectos/proyecto.entity.js';
 import type { AlertaHoras } from '../registro-horas/alertas-horas.js';
@@ -31,15 +22,9 @@ import { HorasCosteadasService } from './horas-costeadas.service.js';
 import { MAXIMO_DIAS_REPORTE, validarRango } from './rango-fechas.js';
 import {
   aAsignacion,
-  aHerramientaPendiente,
   aLiquidacionResumen,
-  aMaterialPendiente,
   type AsignacionRespuesta,
-  type AvanceSinCurva,
-  type HerramientaPendiente,
   type LiquidacionResumen,
-  type MaterialPendiente,
-  sinCurva,
 } from './reportes-respuesta.js';
 import type {
   AgrupacionHoras,
@@ -47,11 +32,6 @@ import type {
   RangoOpcionalDto,
   ReporteHorasDto,
 } from './reportes.dto.js';
-
-export const ESTADOS_MATERIAL_PENDIENTE = [
-  EstadoMaterial.PENDIENTE,
-  EstadoMaterial.SOLICITADO,
-];
 
 export interface ResumenHoras {
   horas: number;
@@ -89,11 +69,6 @@ export interface HorasTipo {
   horas: number;
 }
 
-export interface AvanceDeProyecto {
-  proyecto: Proyecto;
-  avance: AvanceSinCurva;
-}
-
 export interface ResumenProyecto {
   proyecto: Proyecto;
   asignaciones: AsignacionRespuesta[];
@@ -105,8 +80,14 @@ export interface ResumenProyecto {
     horas: number;
     costo: number;
   }[];
-  avance: AvanceSinCurva;
-  pendientes: { materiales: number; herramientas: number };
+  costoMateriales: number;
+  costoPorMaterial: {
+    materialId: number;
+    nombre: string;
+    cantidad: number;
+    costo: number;
+  }[];
+  gastoTotal: number;
 }
 
 function obtener<T>(
@@ -145,12 +126,8 @@ export class ReportesService {
     private readonly proyectos: Repository<Proyecto>,
     @InjectRepository(AsignacionProyecto)
     private readonly asignaciones: Repository<AsignacionProyecto>,
-    @InjectRepository(HitoProyecto)
-    private readonly hitos: Repository<HitoProyecto>,
     @InjectRepository(MaterialProyecto)
     private readonly materiales: Repository<MaterialProyecto>,
-    @InjectRepository(HerramientaProyecto)
-    private readonly herramientas: Repository<HerramientaProyecto>,
     @InjectRepository(LiquidacionNomina)
     private readonly liquidaciones: Repository<LiquidacionNomina>,
   ) {}
@@ -289,60 +266,6 @@ export class ReportesService {
     };
   }
 
-  async pendientes(): Promise<{
-    materiales: MaterialPendiente[];
-    herramientas: HerramientaPendiente[];
-  }> {
-    const hoy = hoyColombia();
-    const materiales = await this.materiales.find({
-      where: { estado: In(ESTADOS_MATERIAL_PENDIENTE) },
-      relations: { proyecto: true, solicitadoPor: true },
-      order: {
-        fechaRequerida: { direction: 'ASC', nulls: 'LAST' },
-        fechaSolicitud: 'ASC',
-        id: 'ASC',
-      },
-    });
-    const herramientas = await this.herramientas.find({
-      where: {
-        estado: EstadoHerramienta.ASIGNADA,
-        fechaDevolucionPrevista: Not(IsNull()),
-      },
-      relations: { proyecto: true, responsable: true },
-      order: { fechaDevolucionPrevista: 'ASC', id: 'ASC' },
-    });
-    return {
-      materiales: materiales.map((m) => aMaterialPendiente(m, hoy)),
-      herramientas: herramientas.map((h) => aHerramientaPendiente(h, hoy)),
-    };
-  }
-
-  async avanceProyectos(estado: EstadoProyecto): Promise<AvanceDeProyecto[]> {
-    const proyectos = await this.proyectos.find({
-      where: { estado },
-      order: { codigo: 'ASC' },
-    });
-    if (proyectos.length === 0) return [];
-
-    const hitos = await this.hitos.findBy({
-      proyectoId: In(proyectos.map((p) => p.id)),
-    });
-    const hitosPorProyecto = new Map<number, HitoProyecto[]>();
-    for (const hito of hitos) {
-      hitosPorProyecto.set(hito.proyectoId, [
-        ...(hitosPorProyecto.get(hito.proyectoId) ?? []),
-        hito,
-      ]);
-    }
-    const hoy = hoyColombia();
-    return proyectos.map((proyecto) => ({
-      proyecto,
-      avance: sinCurva(
-        calcularAvance(hitosPorProyecto.get(proyecto.id) ?? [], hoy),
-      ),
-    }));
-  }
-
   async resumenProyecto(
     id: number,
     rango: RangoOpcionalDto,
@@ -353,28 +276,33 @@ export class ReportesService {
     const proyecto = await this.proyectos.findOneBy({ id });
     if (!proyecto) throw new NotFoundException('Proyecto no encontrado');
 
-    const hoy = hoyColombia();
     const asignaciones = await this.asignaciones.find({
       where: { proyectoId: id },
       relations: { trabajador: true, proyecto: true },
-      order: { fechaInicio: 'DESC', id: 'DESC' },
+      order: { id: 'DESC' },
     });
     const { filas, tipos, trabajadores } = await this.horasCosteadas.consultar({
       proyectoId: id,
       desde,
       hasta,
     });
-    const hitos = await this.hitos.findBy({ proyectoId: id });
-    const materialesPendientes = await this.materiales.countBy({
-      proyectoId: id,
-      estado: In(ESTADOS_MATERIAL_PENDIENTE),
-    });
-    const herramientasPendientes = await this.herramientas.countBy({
-      proyectoId: id,
-      estado: EstadoHerramienta.ASIGNADA,
+    const materiales = await this.materiales.find({
+      where: { proyectoId: id },
+      order: { nombre: 'ASC' },
     });
 
     const resumen = resumirCostos(filas);
+    const costoPorMaterial = materiales
+      .map((m) => ({
+        materialId: m.id,
+        nombre: m.nombre,
+        cantidad: m.cantidadSolicitada,
+        costo: costoMaterial(m),
+      }))
+      .sort((a, b) => b.costo - a.costo || a.nombre.localeCompare(b.nombre, 'es'));
+    const costoMateriales = sumar(
+      costoPorMaterial.map((m) => dec(m.costo)),
+    ).toNumber();
     const costoPorTrabajador = [...agruparPor(filas, (f) => f.trabajadorId)]
       .map(([trabajadorId, grupo]) => {
         const { horas, costo } = resumirCostos(grupo);
@@ -391,13 +319,7 @@ export class ReportesService {
 
     return {
       proyecto,
-      asignaciones: asignaciones
-        .filter(
-          (a) =>
-            (!hasta || a.fechaInicio <= hasta) &&
-            (!desde || a.fechaFin === null || a.fechaFin >= desde),
-        )
-        .map((a) => aAsignacion(a, hoy)),
+      asignaciones: asignaciones.map(aAsignacion),
       horas: {
         total: resumen.horas,
         horasExtra: resumen.horasExtra,
@@ -405,11 +327,9 @@ export class ReportesService {
       },
       costoManoObra: resumen.costo,
       costoPorTrabajador,
-      avance: sinCurva(calcularAvance(hitos, hoy)),
-      pendientes: {
-        materiales: materialesPendientes,
-        herramientas: herramientasPendientes,
-      },
+      costoMateriales,
+      costoPorMaterial,
+      gastoTotal: sumar([dec(resumen.costo), dec(costoMateriales)]).toNumber(),
     };
   }
 

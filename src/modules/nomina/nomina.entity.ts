@@ -14,11 +14,6 @@ import {
 import { Trabajador, TipoSalario } from '../trabajadores/trabajador.entity.js';
 import { transformadorNumerico } from '../../common/utils/transformadores.js';
 
-export enum TipoPeriodo {
-  QUINCENAL = 'QUINCENAL',
-  MENSUAL = 'MENSUAL',
-}
-
 export enum EstadoLiquidacion {
   BORRADOR = 'BORRADOR',
   CERRADA = 'CERRADA',
@@ -36,24 +31,16 @@ const dinero = {
   transformer: transformadorNumerico,
 } as const;
 
-/** Liquidación de un periodo de nómina (consolidado de todos los trabajadores). */
+/** Liquidación semanal (lunes a domingo): consolidado de todos los trabajadores. */
 @Entity('liquidaciones_nomina')
-@Unique(['fechaInicio', 'fechaFin'])
+@Unique('uq_liquidacion_fecha_inicio', ['fechaInicio'])
 export class LiquidacionNomina {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'varchar', length: 10 })
-  tipoPeriodo: TipoPeriodo;
-
+  /** Año del lunes de la semana. */
   @Column({ type: 'smallint' })
   anio: number;
-
-  @Column({ type: 'smallint' })
-  mes: number;
-
-  @Column({ type: 'smallint', nullable: true })
-  quincena: number | null;
 
   @Column({ type: 'date' })
   fechaInicio: string;

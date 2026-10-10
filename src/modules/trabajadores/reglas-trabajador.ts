@@ -1,8 +1,8 @@
-import { EstadoTrabajador, TipoJornada, type Trabajador } from './trabajador.entity.js';
+import { TipoJornada, type Trabajador } from './trabajador.entity.js';
+import type { ParametrosVigentes } from '../parametros/resolutor-parametros.js';
+import { salarioMensualEquivalente } from './valor-hora.js';
 
 type DatosJornada = Pick<Trabajador, 'tipoJornada' | 'horasSemanales'>;
-type DatosValidables = DatosJornada &
-  Pick<Trabajador, 'fechaIngreso' | 'fechaRetiro' | 'estado'>;
 
 /** Campos que alteran la liquidación de nómina del trabajador. */
 export const CAMPOS_NOMINA = [
@@ -10,9 +10,8 @@ export const CAMPOS_NOMINA = [
   'tipoSalario',
   'tipoJornada',
   'horasSemanales',
-  'fechaIngreso',
-  'fechaRetiro',
   'aplicaAuxilioTransporte',
+  'estado',
 ] as const satisfies readonly (keyof Trabajador)[];
 
 /** En jornada completa las horas semanales no aplican (se usa la jornada legal vigente). */
@@ -20,17 +19,21 @@ export function normalizarJornada(datos: DatosJornada): void {
   if (datos.tipoJornada === TipoJornada.COMPLETA) datos.horasSemanales = null;
 }
 
+/** Elegibilidad legal del auxilio de transporte: aplica si el salario mensual equivalente ≤ 2 SMMLV. */
+export function calcularAuxilioTransporte(
+  datos: Pick<Trabajador, 'tipoSalario' | 'salarioBase' | 'horasSemanales'>,
+  parametros: ParametrosVigentes,
+): boolean {
+  return salarioMensualEquivalente(datos, parametros).lte(
+    parametros.smmlv.times(2),
+  );
+}
+
 /** Reglas que cruzan campos; el DTO ya validó tipos y rangos individuales. */
-export function erroresTrabajador(datos: DatosValidables): string[] {
+export function erroresTrabajador(datos: DatosJornada): string[] {
   const errores: string[] = [];
   if (datos.tipoJornada === TipoJornada.PARCIAL && datos.horasSemanales == null) {
     errores.push('horasSemanales es obligatorio para la jornada PARCIAL');
-  }
-  if (datos.fechaRetiro && datos.fechaRetiro < datos.fechaIngreso) {
-    errores.push('La fecha de retiro no puede ser anterior a la fecha de ingreso');
-  }
-  if (datos.estado === EstadoTrabajador.INACTIVO && !datos.fechaRetiro) {
-    errores.push('Un trabajador INACTIVO debe tener fecha de retiro');
   }
   return errores;
 }

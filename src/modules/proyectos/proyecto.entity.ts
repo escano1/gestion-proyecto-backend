@@ -24,11 +24,11 @@ export class Proyecto {
   @Column({ type: 'varchar', length: 200 })
   nombre: string;
 
-  @Column({ type: 'varchar', length: 150 })
-  cliente: string;
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  cliente: string | null;
 
-  @Column({ type: 'varchar', length: 200 })
-  ubicacion: string;
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  ubicacion: string | null;
 
   @Column({ type: 'text', nullable: true })
   descripcion: string | null;

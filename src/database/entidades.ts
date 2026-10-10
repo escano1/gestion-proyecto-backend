@@ -14,12 +14,6 @@ import {
   NominaTrabajador,
 } from '../modules/nomina/nomina.entity.js';
 import { MaterialProyecto } from '../modules/materiales/material-proyecto.entity.js';
-import { HerramientaProyecto } from '../modules/herramientas/herramienta-proyecto.entity.js';
-import { HitoProyecto } from '../modules/hitos/hito-proyecto.entity.js';
-import {
-  BitacoraAdjunto,
-  BitacoraEntrada,
-} from '../modules/bitacora/bitacora.entity.js';
 import { RegistroAuditoria } from '../modules/auditoria/registro-auditoria.entity.js';
 
 /** Lista explícita (sin globs) para que funcione igual en TS (pruebas) y en JS compilado. */
@@ -36,9 +30,5 @@ export const ENTIDADES = [
   NominaTrabajador,
   ConceptoNomina,
   MaterialProyecto,
-  HerramientaProyecto,
-  HitoProyecto,
-  BitacoraEntrada,
-  BitacoraAdjunto,
   RegistroAuditoria,
 ];

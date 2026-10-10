@@ -11,7 +11,12 @@ import {
   MoreThanOrEqual,
 } from 'typeorm';
 import { CERO, dec, type Decimal, sumar } from '../../common/utils/dinero.js';
-import { hoyColombia, type Fecha } from '../../common/utils/fechas.js';
+import {
+  hoyColombia,
+  inicioSemana,
+  sumarDias,
+  type Fecha,
+} from '../../common/utils/fechas.js';
 import { AsignacionProyecto } from '../asignaciones/asignacion-proyecto.entity.js';
 import {
   EstadoLiquidacion,
@@ -83,16 +88,13 @@ export function periodoCerrado(
   );
 }
 
-function tieneAsignacionVigente(
+function tieneAsignacion(
   ctx: ContextoValidacion,
   datos: DatosRegistro,
 ): boolean {
   return ctx.asignaciones.some(
     (a) =>
-      a.trabajadorId === datos.trabajadorId &&
-      a.proyectoId === datos.proyectoId &&
-      a.fechaInicio <= datos.fecha &&
-      (a.fechaFin === null || datos.fecha <= a.fechaFin),
+      a.trabajadorId === datos.trabajadorId && a.proyectoId === datos.proyectoId,
   );
 }
 
@@ -163,33 +165,22 @@ export function validarRegistro(
     );
   }
 
-  const trabajador = ctx.trabajadores.get(datos.trabajadorId);
-  if (!trabajador) throw error(NotFoundException, 'Trabajador no encontrado');
+  if (!ctx.trabajadores.has(datos.trabajadorId))
+    throw error(NotFoundException, 'Trabajador no encontrado');
   if (!ctx.proyectos.has(datos.proyectoId))
     throw error(NotFoundException, 'Proyecto no encontrado');
 
-  if (datos.fecha > ctx.hoy) {
+  // Se puede registrar toda la semana en curso (incluidos sábado y domingo).
+  if (datos.fecha > sumarDias(inicioSemana(ctx.hoy), 6)) {
     throw error(
       BadRequestException,
-      'No se pueden registrar horas en fechas futuras',
+      'No se pueden registrar horas de semanas futuras',
     );
   }
-  if (datos.fecha < trabajador.fechaIngreso) {
+  if (!tieneAsignacion(ctx, datos)) {
     throw error(
       BadRequestException,
-      `La fecha es anterior al ingreso del trabajador (${trabajador.fechaIngreso})`,
-    );
-  }
-  if (trabajador.fechaRetiro && datos.fecha > trabajador.fechaRetiro) {
-    throw error(
-      BadRequestException,
-      `La fecha es posterior al retiro del trabajador (${trabajador.fechaRetiro})`,
-    );
-  }
-  if (!tieneAsignacionVigente(ctx, datos)) {
-    throw error(
-      BadRequestException,
-      'El trabajador no tiene una asignación vigente al proyecto en esa fecha',
+      'El trabajador no está asignado al proyecto',
     );
   }
   if (periodoCerrado(ctx, datos.fecha))

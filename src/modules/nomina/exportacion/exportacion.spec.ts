@@ -2,11 +2,7 @@ import ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
 import { TipoDocumento, TipoSalario } from '../../trabajadores/trabajador.entity.js';
 import { construirPeriodo } from '../calculo/periodo.js';
-import {
-  EstadoLiquidacion,
-  TipoConcepto,
-  TipoPeriodo,
-} from '../nomina.entity.js';
+import { EstadoLiquidacion, TipoConcepto } from '../nomina.entity.js';
 import type { Desprendible, LiquidacionResumen } from '../nomina.respuestas.js';
 import { filaConsolidado, totalesConsolidado, type DatosConsolidado } from './consolidado.js';
 import { generarConsolidadoExcel } from './consolidado-excel.js';
@@ -14,14 +10,11 @@ import { generarConsolidadoPdf } from './consolidado-pdf.js';
 import { generarDesprendiblePdf } from './desprendible-pdf.js';
 import { textoPdf } from './pdf.js';
 
-const periodo = construirPeriodo(TipoPeriodo.QUINCENAL, 2026, 10, 2);
+const periodo = construirPeriodo('2026-10-12');
 
 const liquidacion: LiquidacionResumen = {
   id: 12,
-  tipoPeriodo: periodo.tipoPeriodo,
   anio: periodo.anio,
-  mes: periodo.mes,
-  quincena: periodo.quincena,
   fechaInicio: periodo.fechaInicio,
   fechaFin: periodo.fechaFin,
   estado: EstadoLiquidacion.BORRADOR,
@@ -37,7 +30,6 @@ const liquidacion: LiquidacionResumen = {
 
 const ref = {
   id: liquidacion.id,
-  tipoPeriodo: liquidacion.tipoPeriodo,
   fechaInicio: liquidacion.fechaInicio,
   fechaFin: liquidacion.fechaFin,
   estado: liquidacion.estado,

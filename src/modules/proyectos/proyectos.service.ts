@@ -16,6 +16,10 @@ import type {
 import { AuditoriaService } from '../auditoria/auditoria.service.js';
 import { AccionAuditoria } from '../auditoria/registro-auditoria.entity.js';
 import type { UsuarioAutenticado } from '../../common/tipos/usuario-autenticado.js';
+import { AsignacionProyecto } from '../asignaciones/asignacion-proyecto.entity.js';
+import { RegistroHoras } from '../registro-horas/registro-horas.entity.js';
+import { MaterialProyecto } from '../materiales/material-proyecto.entity.js';
+import { EstadoLiquidacion, LiquidacionNomina } from '../nomina/nomina.entity.js';
 
 /** `merge` ignora los `undefined` del DTO, así que estos valores quedan si el campo se omite. */
 const VALORES_POR_DEFECTO = {
@@ -104,6 +108,41 @@ export class ProyectosService {
   private validarFechas(proyecto: Proyecto): void {
     const errores = erroresFechasProyecto(proyecto);
     if (errores.length) throw new BadRequestException(errores);
+  }
+
+  /**
+   * Elimina el proyecto con todo lo que depende de él: horas registradas, asignaciones y materiales.
+   * Las liquidaciones en borrador quedan marcadas para recálculo (ya no cuentan esas horas).
+   */
+  async eliminar(id: number, usuario: UsuarioAutenticado): Promise<void> {
+    await this.dataSource.transaction(async (m) => {
+      const proyecto = await m.findOneBy(Proyecto, { id });
+      if (!proyecto) throw new NotFoundException('Proyecto no encontrado');
+
+      // Los detalles de cada registro se eliminan en cascada (FK ON DELETE CASCADE).
+      const horas = await m.delete(RegistroHoras, { proyectoId: id });
+      const asignaciones = await m.delete(AsignacionProyecto, { proyectoId: id });
+      const materiales = await m.delete(MaterialProyecto, { proyectoId: id });
+      await m.delete(Proyecto, { id });
+      if (horas.affected) {
+        await m.update(
+          LiquidacionNomina,
+          { estado: EstadoLiquidacion.BORRADOR },
+          { requiereRecalculo: true },
+        );
+      }
+      await this.auditoria.registrar(
+        {
+          entidad: 'Proyecto',
+          entidadId: id,
+          accion: AccionAuditoria.ELIMINAR,
+          antes: proyecto,
+          descripcion: `Eliminado con ${horas.affected ?? 0} registro(s) de horas, ${asignaciones.affected ?? 0} asignación(es) y ${materiales.affected ?? 0} material(es)`,
+          usuario,
+        },
+        m,
+      );
+    });
   }
 
   private async verificarCodigoDisponible(m: EntityManager, codigo: string): Promise<void> {

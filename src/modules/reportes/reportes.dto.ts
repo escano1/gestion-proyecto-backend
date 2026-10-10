@@ -1,7 +1,6 @@
 import { Type } from 'class-transformer';
-import { IsEnum, IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
 import { EsFecha } from '../../common/validacion/es-fecha.decorator.js';
-import { EstadoProyecto } from '../proyectos/proyecto.entity.js';
 
 export const AGRUPACIONES_HORAS = [
   'trabajador',
@@ -55,10 +54,4 @@ export class NominaPeriodosDto {
   @Min(2000)
   @Max(2100)
   anio: number;
-}
-
-export class AvanceProyectosDto {
-  @IsOptional()
-  @IsEnum(EstadoProyecto)
-  estado: EstadoProyecto = EstadoProyecto.ACTIVO;
 }

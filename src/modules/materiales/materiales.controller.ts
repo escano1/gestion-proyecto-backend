@@ -8,7 +8,6 @@ import {
   ParseIntPipe,
   Patch,
   Post,
-  Query,
 } from '@nestjs/common';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { UsuarioActual } from '../../common/decorators/usuario-actual.decorator.js';
@@ -18,7 +17,6 @@ import { MaterialesService } from './materiales.service.js';
 import {
   ActualizarMaterialDto,
   CrearMaterialDto,
-  FiltroMaterialesDto,
 } from './materiales.dto.js';
 
 @Controller()
@@ -26,11 +24,8 @@ export class MaterialesController {
   constructor(private readonly materiales: MaterialesService) {}
 
   @Get('proyectos/:proyectoId/materiales')
-  listar(
-    @Param('proyectoId', ParseIntPipe) proyectoId: number,
-    @Query() filtro: FiltroMaterialesDto,
-  ) {
-    return this.materiales.listar(proyectoId, filtro);
+  listar(@Param('proyectoId', ParseIntPipe) proyectoId: number) {
+    return this.materiales.listar(proyectoId);
   }
 
   @Post('proyectos/:proyectoId/materiales')

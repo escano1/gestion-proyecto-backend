@@ -80,12 +80,6 @@ export class Trabajador {
   @Column({ type: 'boolean', default: true })
   aplicaAuxilioTransporte: boolean;
 
-  @Column({ type: 'date' })
-  fechaIngreso: string;
-
-  @Column({ type: 'date', nullable: true })
-  fechaRetiro: string | null;
-
   @Column({ type: 'varchar', length: 10, default: EstadoTrabajador.ACTIVO })
   estado: EstadoTrabajador;
 

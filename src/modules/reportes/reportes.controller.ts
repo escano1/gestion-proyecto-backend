@@ -5,7 +5,6 @@ import { Rol } from '../../common/enums/rol.enum.js';
 import type { UsuarioAutenticado } from '../../common/tipos/usuario-autenticado.js';
 import { DashboardService } from './dashboard.service.js';
 import {
-  AvanceProyectosDto,
   NominaPeriodosDto,
   RangoFechasDto,
   RangoOpcionalDto,
@@ -39,16 +38,6 @@ export class ReportesController {
   @Roles(Rol.NOMINA)
   nominaPeriodos(@Query() { anio }: NominaPeriodosDto) {
     return this.reportes.nominaPeriodos(anio);
-  }
-
-  @Get('pendientes')
-  pendientes() {
-    return this.reportes.pendientes();
-  }
-
-  @Get('avance-proyectos')
-  avanceProyectos(@Query() { estado }: AvanceProyectosDto) {
-    return this.reportes.avanceProyectos(estado);
   }
 
   @Get('proyectos/:id/resumen')

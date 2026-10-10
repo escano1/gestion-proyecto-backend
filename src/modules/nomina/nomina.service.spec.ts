@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
-import type { DataSource, Repository } from 'typeorm';
+import type { DataSource, FindOperator, Repository } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Rol } from '../../common/enums/rol.enum.js';
 import type { Fecha } from '../../common/utils/fechas.js';
@@ -11,6 +11,7 @@ import type { ParametrosService } from '../parametros/parametros.service.js';
 import { ResolutorParametros } from '../parametros/resolutor-parametros.js';
 import { CodigoTipoHora, TipoHora } from '../tipos-hora/tipo-hora.entity.js';
 import {
+  EstadoTrabajador,
   TipoContrato,
   TipoDocumento,
   TipoJornada,
@@ -22,7 +23,6 @@ import {
   EstadoLiquidacion,
   LiquidacionNomina,
   NominaTrabajador,
-  TipoPeriodo,
 } from './nomina.entity.js';
 import { NominaService } from './nomina.service.js';
 
@@ -70,8 +70,7 @@ function trabajador(id: number, cambios: Partial<Trabajador>): Trabajador {
     tipoJornada: TipoJornada.COMPLETA,
     horasSemanales: null,
     aplicaAuxilioTransporte: true,
-    fechaIngreso: '2025-01-01',
-    fechaRetiro: null,
+    estado: EstadoTrabajador.ACTIVO,
     ...cambios,
   });
 }
@@ -79,12 +78,9 @@ function trabajador(id: number, cambios: Partial<Trabajador>): Trabajador {
 function liquidacionGuardada(cambios: Partial<LiquidacionNomina> = {}): LiquidacionNomina {
   return Object.assign(new LiquidacionNomina(), {
     id: 5,
-    tipoPeriodo: TipoPeriodo.QUINCENAL,
     anio: 2026,
-    mes: 10,
-    quincena: 2,
-    fechaInicio: '2026-10-16',
-    fechaFin: '2026-10-31',
+    fechaInicio: '2026-10-12',
+    fechaFin: '2026-10-18',
     estado: EstadoLiquidacion.BORRADOR,
     requiereRecalculo: false,
     totalDevengado: 0,
@@ -103,7 +99,7 @@ function liquidacionGuardada(cambios: Partial<LiquidacionNomina> = {}): Liquidac
 /** EntityManager en memoria con lo mínimo que usa NominaService. */
 class ManagerFalso {
   liquidacion: LiquidacionNomina | null = null;
-  solapada: LiquidacionNomina | null = null;
+  existente: LiquidacionNomina | null = null;
   trabajadores: Trabajador[] = [];
   tipos: TipoHora[] = [];
   filasHoras: { trabajadorId: number; fecha: string; tipoHoraId: number; horas: string }[] = [];
@@ -117,16 +113,20 @@ class ManagerFalso {
     return sql.includes('pg_advisory_xact_lock') ? [] : this.filasHoras;
   });
 
+  /** Emula el filtro "activos o con horas" que arma NominaService. */
   getRepository(entidad: unknown) {
-    const builder = {
-      where: () => builder,
-      andWhere: () => builder,
-      orderBy: () => builder,
-      addOrderBy: () => builder,
-      getOne: async () => this.solapada,
-      getMany: async () => (entidad === Trabajador ? this.trabajadores : []),
+    return {
+      find: async ({ where }: { where: { estado?: EstadoTrabajador; id?: FindOperator<number[]> }[] }) =>
+        entidad === Trabajador
+          ? this.trabajadores.filter((t) =>
+              where.some((c) => (c.estado ? t.estado === c.estado : c.id?.value.includes(t.id))),
+            )
+          : [],
     };
-    return { createQueryBuilder: () => builder };
+  }
+
+  async findOneBy() {
+    return this.existente;
   }
 
   create(_entidad: unknown, datos: Partial<LiquidacionNomina>) {
@@ -200,49 +200,41 @@ describe('NominaService', () => {
   });
 
   describe('crear', () => {
-    it('valida el periodo antes de abrir la transacción', async () => {
-      await expect(
-        servicio.crear({ tipoPeriodo: TipoPeriodo.QUINCENAL, anio: 2026, mes: 10 }, usuario),
-      ).rejects.toThrow(BadRequestException);
+    it('valida la fecha antes de abrir la transacción', async () => {
+      await expect(servicio.crear({ fecha: '2026-02-30' }, usuario)).rejects.toThrow(BadRequestException);
       expect(m.query).not.toHaveBeenCalled();
     });
 
-    it('409 si se solapa con otra liquidación', async () => {
-      m.solapada = liquidacionGuardada({ id: 9, tipoPeriodo: TipoPeriodo.MENSUAL, quincena: null, fechaInicio: '2026-10-01' });
-      await expect(
-        servicio.crear({ tipoPeriodo: TipoPeriodo.QUINCENAL, anio: 2026, mes: 10, quincena: 2 }, usuario),
-      ).rejects.toThrow(ConflictException);
+    it('409 si ya existe la liquidación de esa semana', async () => {
+      m.existente = liquidacionGuardada({ id: 9 });
+      await expect(servicio.crear({ fecha: '2026-10-14' }, usuario)).rejects.toThrow(ConflictException);
       expect(m.consultas[0]).toContain('pg_advisory_xact_lock');
     });
 
     it('calcula, persiste nóminas y conceptos (caso A) y audita CALCULAR', async () => {
       m.trabajadores = [
         trabajador(1, { nombre: 'Ana' }),
-        trabajador(2, { nombre: 'Retirado', fechaRetiro: '2026-10-10' }),
+        trabajador(2, { nombre: 'Inactivo sin horas', estado: EstadoTrabajador.INACTIVO }),
         trabajador(3, { nombre: 'Por hora sin horas', tipoSalario: TipoSalario.POR_HORA, salarioBase: 12_000 }),
       ];
       m.filasHoras = [
-        { trabajadorId: 1, fecha: '2026-10-19', tipoHoraId: 2, horas: '3.00' },
-        { trabajadorId: 1, fecha: '2026-10-18', tipoHoraId: 5, horas: '2.00' },
-        { trabajadorId: 1, fecha: '2026-10-20', tipoHoraId: 3, horas: '4.00' },
+        { trabajadorId: 1, fecha: '2026-10-12', tipoHoraId: 2, horas: '3.00' },
+        { trabajadorId: 1, fecha: '2026-10-12', tipoHoraId: 5, horas: '2.00' },
+        { trabajadorId: 1, fecha: '2026-10-12', tipoHoraId: 3, horas: '4.00' },
       ];
 
-      const respuesta = await servicio.crear(
-        { tipoPeriodo: TipoPeriodo.QUINCENAL, anio: 2026, mes: 10, quincena: 2 },
-        usuario,
-      );
+      const respuesta = await servicio.crear({ fecha: '2026-10-15' }, usuario);
 
       expect(respuesta).toMatchObject({
         id: 5,
-        tipoPeriodo: TipoPeriodo.QUINCENAL,
-        quincena: 2,
-        fechaInicio: '2026-10-16',
-        fechaFin: '2026-10-31',
+        anio: 2026,
+        fechaInicio: '2026-10-12',
+        fechaFin: '2026-10-18',
         estado: EstadoLiquidacion.BORRADOR,
         requiereRecalculo: false,
-        totalDevengado: 1_253_048,
-        totalDeducciones: 90_280,
-        totalNeto: 1_162_768,
+        totalDevengado: 626_622,
+        totalDeducciones: 45_480,
+        totalNeto: 581_142,
         numeroTrabajadores: 1,
         cerradaEn: null,
       });
@@ -255,24 +247,24 @@ describe('NominaService', () => {
           numeroDocumento: '1001',
           cargo: 'Técnico',
           tipoSalario: TipoSalario.MENSUAL,
-          diasLaborados: 15,
-          ibc: 1_128_500,
-          totalDevengado: 1_253_048,
-          totalDeducciones: 90_280,
-          netoPagar: 1_162_768,
+          diasLaborados: 7,
+          ibc: 568_500,
+          totalDevengado: 626_622,
+          totalDeducciones: 45_480,
+          netoPagar: 581_142,
           alertas: [],
         },
       ]);
       expect(m.nominas[0]).toMatchObject({ liquidacionId: 5, valorHora: 10_000, salarioBase: 2_100_000 });
       expect(m.nominas[0].parametros).toMatchObject({ smmlv: 1_750_905, recargoDominicalFestivo: 0.9 });
       expect(m.conceptos.map((c) => [c.nominaTrabajadorId, c.orden, c.codigo, c.valor])).toEqual([
-        [100, 1, 'SALARIO', 1_050_000],
+        [100, 1, 'SALARIO', 490_000],
         [100, 2, 'RECARGO_NOC', 10_500],
         [100, 3, 'HORAS_HED', 50_000],
         [100, 4, 'RECARGO_DOM', 18_000],
-        [100, 5, 'AUX_TRANSPORTE', 124_548],
-        [100, 6, 'SALUD', 45_140],
-        [100, 7, 'PENSION', 45_140],
+        [100, 5, 'AUX_TRANSPORTE', 58_122],
+        [100, 6, 'SALUD', 22_740],
+        [100, 7, 'PENSION', 22_740],
       ]);
       expect(registrar).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -300,7 +292,7 @@ describe('NominaService', () => {
       m.trabajadores = [trabajador(1, { nombre: 'Ana' })];
       const respuesta = await servicio.recalcular(5, usuario);
       expect(respuesta.requiereRecalculo).toBe(false);
-      expect(respuesta.totalDevengado).toBe(1_174_548);
+      expect(respuesta.totalDevengado).toBe(548_122);
       expect(m.eliminadas).toContainEqual({ liquidacionId: 5 });
       expect(registrar).toHaveBeenCalledWith(
         expect.objectContaining({ accion: AccionAuditoria.CALCULAR, antes: expect.objectContaining({ id: 5 }) }),

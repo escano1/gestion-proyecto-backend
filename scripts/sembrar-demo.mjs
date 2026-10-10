@@ -66,22 +66,27 @@ await llamar('POST', '/proyectos', {
   ubicacion: 'Puerto Colombia, Atlántico', fechaInicio: haceDias(120), estado: 'SUSPENDIDO',
 });
 
-const base = { tipoDocumento: 'CC', tipoContrato: 'INDEFINIDO', fechaIngreso: haceDias(365), eps: 'Sura', fondoPension: 'Porvenir' };
+const base = { tipoDocumento: 'CC', tipoContrato: 'INDEFINIDO', eps: 'Sura', fondoPension: 'Porvenir' };
 const ana = await llamar('POST', '/trabajadores', { ...base, nombre: 'Ana Torres', numeroDocumento: '1045789123', cargo: 'Técnica electricista', tipoSalario: 'MENSUAL', salarioBase: 2_100_000 });
 const luis = await llamar('POST', '/trabajadores', { ...base, nombre: 'Luis Gómez', numeroDocumento: '72198456', cargo: 'Liniero', tipoSalario: 'POR_HORA', salarioBase: 12_000, tipoContrato: 'OBRA_LABOR' });
 const maria = await llamar('POST', '/trabajadores', { ...base, nombre: 'María Rodríguez', numeroDocumento: '32789654', cargo: 'Ingeniera residente', tipoSalario: 'MENSUAL', salarioBase: 7_500_000 });
 const pedro = await llamar('POST', '/trabajadores', { ...base, nombre: 'Pedro Castillo', numeroDocumento: '1140876543', cargo: 'Auxiliar', tipoSalario: 'MENSUAL', salarioBase: 1_750_905 });
 
 for (const t of [ana, luis, maria, pedro]) {
-  await llamar('POST', '/asignaciones', { trabajadorId: t.id, proyectoId: p1.id, fechaInicio: inicio, rolEnProyecto: t.cargo });
+  await llamar('POST', '/asignaciones', { trabajadorId: t.id, proyectoId: p1.id, rolEnProyecto: t.cargo });
 }
-for (const t of [ana, maria]) await llamar('POST', '/asignaciones', { trabajadorId: t.id, proyectoId: p2.id, fechaInicio: inicio });
+for (const t of [ana, maria]) await llamar('POST', '/asignaciones', { trabajadorId: t.id, proyectoId: p2.id });
 
 const tipos = Object.fromEntries((await llamar('GET', '/tipos-hora')).map((t) => [t.codigo, t.id]));
 const horas = (codigo, cantidad) => ({ tipoHoraId: tipos[codigo], horas: cantidad });
+// Horas por día de las últimas 6 semanas completas (lunes a domingo).
+function haceDiasDe(fecha, dias) {
+  return fechaIso(new Date(new Date(`${fecha}T00:00:00Z`).getTime() - dias * 86_400_000));
+}
+const lunesActual = haceDiasDe(fechaIso(hoy), (new Date(hoy).getUTCDay() + 6) % 7);
 const registros = [];
-for (let d = 45; d >= 1; d--) {
-  const fecha = haceDias(d);
+for (let d = 6 * 7; d >= 1; d--) {
+  const fecha = haceDiasDe(lunesActual, d);
   const diaSemana = new Date(`${fecha}T00:00:00Z`).getUTCDay(); // 0 = domingo
   if (diaSemana === 0) {
     registros.push({ trabajadorId: ana.id, proyectoId: p1.id, fecha, detalles: [horas('DOM', 4)] });
@@ -96,31 +101,13 @@ for (let d = 45; d >= 1; d--) {
   }
 }
 const lote = await llamar('PUT', '/registro-horas/lote', { registros });
-console.log(`Horas: ${lote.creados} registros, ${lote.alertas.length} alertas legales.`);
+console.log(`Horas: ${lote.creados} registros diarios, ${lote.alertas.length} alertas legales.`);
 
-// Última quincena ya terminada (sus horas están completas en el rango cargado).
-const [anio, mes, dia] = fechaIso(hoy).split('-').map(Number);
-const quincena = dia > 15 ? { anio, mes, quincena: 1 } : mes === 1 ? { anio: anio - 1, mes: 12, quincena: 2 } : { anio, mes: mes - 1, quincena: 2 };
-const liquidacion = await llamar('POST', '/nomina/liquidaciones', { tipoPeriodo: 'QUINCENAL', ...quincena });
+// Última semana ya terminada (sus horas están completas en el rango cargado).
+const liquidacion = await llamar('POST', '/nomina/liquidaciones', { fecha: haceDiasDe(lunesActual, 7) });
 console.log(`Liquidación en borrador: ${liquidacion.fechaInicio} a ${liquidacion.fechaFin}, neto ${liquidacion.totalNeto}.`);
 
-await llamar('POST', `/proyectos/${p1.id}/materiales`, { nombre: 'Cable XLPE 15 kV 1/0', unidadMedida: 'm', cantidadSolicitada: 450, fechaRequerida: haceDias(5) });
-await llamar('POST', `/proyectos/${p1.id}/materiales`, { nombre: 'Transformador de potencia 5 MVA', unidadMedida: 'und', cantidadSolicitada: 1, estado: 'SOLICITADO', fechaRequerida: haceDias(-40) });
-await llamar('POST', `/proyectos/${p1.id}/herramientas`, { nombre: 'Megger 5 kV', codigo: 'EQ-014', cantidad: 1, responsableId: maria.id, fechaAsignacion: haceDias(50), fechaDevolucionPrevista: haceDias(3) });
-await llamar('POST', `/proyectos/${p1.id}/herramientas`, { nombre: 'Pértiga telescópica', cantidad: 2, responsableId: luis.id, fechaAsignacion: haceDias(50) });
-for (const [nombre, diasHasta, peso, porcentajeAvance] of [
-  ['Ingeniería de detalle', 30, 15, 100],
-  ['Obras civiles', -10, 25, 60],
-  ['Montaje electromecánico', -70, 35, 10],
-  ['Pruebas y puesta en servicio', -130, 25, 0],
-]) {
-  await llamar('POST', `/proyectos/${p1.id}/hitos`, { nombre, fechaPlaneada: haceDias(diasHasta), peso, porcentajeAvance });
-}
-const entrada = new FormData();
-entrada.append('fecha', haceDias(2));
-entrada.append('descripcion', 'Fundida de bases para pórticos de 34,5 kV. Inspección de interventoría sin observaciones.');
-await fetch(`${API}/proyectos/${p1.id}/bitacora`, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: entrada }).then(async (r) => {
-  if (!r.ok) throw new Error(`Bitácora → ${r.status} ${await r.text()}`);
-});
+await llamar('POST', `/proyectos/${p1.id}/materiales`, { nombre: 'Cable XLPE 15 kV 1/0', unidadMedida: 'm', cantidadSolicitada: 450, precioUnitario: 38_500 });
+await llamar('POST', `/proyectos/${p1.id}/materiales`, { nombre: 'Transformador de potencia 5 MVA', unidadMedida: 'und', cantidadSolicitada: 1, precioUnitario: 42_000_000 });
 
-console.log('Datos de ejemplo cargados: 3 proyectos, 4 trabajadores, horas, nómina, materiales, herramientas, hitos y bitácora.');
+console.log('Datos de ejemplo cargados: 3 proyectos, 4 trabajadores, horas, nómina, materiales.');

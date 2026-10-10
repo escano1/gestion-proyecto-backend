@@ -1,8 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AsignacionProyecto } from '../asignaciones/asignacion-proyecto.entity.js';
-import { HerramientaProyecto } from '../herramientas/herramienta-proyecto.entity.js';
-import { HitoProyecto } from '../hitos/hito-proyecto.entity.js';
 import { MaterialProyecto } from '../materiales/material-proyecto.entity.js';
 import { LiquidacionNomina } from '../nomina/nomina.entity.js';
 import { Proyecto } from '../proyectos/proyecto.entity.js';
@@ -27,9 +25,7 @@ import { ReportesService } from './reportes.service.js';
       Proyecto,
       AsignacionProyecto,
       LiquidacionNomina,
-      HitoProyecto,
       MaterialProyecto,
-      HerramientaProyecto,
     ]),
   ],
   controllers: [ReportesController],

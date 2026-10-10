@@ -1,7 +1,6 @@
 import { PartialType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
-  IsBoolean,
   IsEmail,
   IsEnum,
   IsNotEmpty,
@@ -14,7 +13,6 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
-import { EsFecha } from '../../common/validacion/es-fecha.decorator.js';
 import {
   EstadoTrabajador,
   TipoContrato,
@@ -74,17 +72,6 @@ export class CrearTrabajadorDto {
   @Min(1)
   @Max(48)
   horasSemanales?: number | null;
-
-  @ValidateIf(definido)
-  @IsBoolean()
-  aplicaAuxilioTransporte?: boolean;
-
-  @EsFecha()
-  fechaIngreso: string;
-
-  @IsOptional()
-  @EsFecha()
-  fechaRetiro?: string | null;
 
   @ValidateIf(definido)
   @IsEnum(EstadoTrabajador)

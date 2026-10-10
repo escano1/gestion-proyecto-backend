@@ -5,14 +5,14 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, type EntityManager, type ObjectLiteral, Repository } from 'typeorm';
+import { DataSource, type EntityManager, In, type ObjectLiteral, Repository } from 'typeorm';
 import { redondear2 } from '../../common/utils/dinero.js';
 import type { UsuarioAutenticado } from '../../common/tipos/usuario-autenticado.js';
 import { AuditoriaService } from '../auditoria/auditoria.service.js';
 import { AccionAuditoria } from '../auditoria/registro-auditoria.entity.js';
 import { ParametrosService } from '../parametros/parametros.service.js';
 import { TipoHora } from '../tipos-hora/tipo-hora.entity.js';
-import { Trabajador } from '../trabajadores/trabajador.entity.js';
+import { EstadoTrabajador, Trabajador } from '../trabajadores/trabajador.entity.js';
 import {
   liquidarNomina,
   type HoraDeTrabajador,
@@ -47,7 +47,7 @@ import {
 
 const ENTIDAD_AUDITORIA = 'LiquidacionNomina';
 const LIQUIDACION_NO_ENCONTRADA = 'Liquidación no encontrada';
-// Clave del bloqueo consultivo que serializa la creación de liquidaciones (validación de solapes).
+// Clave del bloqueo consultivo que serializa la creación de liquidaciones (una por semana).
 const BLOQUEO_CREACION_LIQUIDACION = 7_420_260;
 // Lotes para no superar el límite de parámetros por consulta de PostgreSQL.
 const LOTE_NOMINAS = 500;
@@ -112,27 +112,19 @@ export class NominaService {
   }
 
   async crear(dto: CrearLiquidacionDto, usuario: UsuarioAutenticado): Promise<LiquidacionConNominas> {
-    const periodo = construirPeriodo(dto.tipoPeriodo, dto.anio, dto.mes, dto.quincena);
+    const periodo = construirPeriodo(dto.fecha);
     return this.dataSource.transaction(async (m) => {
       await m.query('SELECT pg_advisory_xact_lock($1)', [BLOQUEO_CREACION_LIQUIDACION]);
-      const solapada = await m
-        .getRepository(LiquidacionNomina)
-        .createQueryBuilder('l')
-        .where('l.fechaInicio <= :fin', { fin: periodo.fechaFin })
-        .andWhere('l.fechaFin >= :inicio', { inicio: periodo.fechaInicio })
-        .getOne();
-      if (solapada) {
+      const existente = await m.findOneBy(LiquidacionNomina, { fechaInicio: periodo.fechaInicio });
+      if (existente) {
         throw new ConflictException(
-          `El periodo se solapa con la liquidación #${solapada.id}: ${describirPeriodo(solapada)}`,
+          `Ya existe la liquidación #${existente.id}: ${describirPeriodo(existente)}`,
         );
       }
 
       const liquidacion = await m.save(
         m.create(LiquidacionNomina, {
-          tipoPeriodo: periodo.tipoPeriodo,
           anio: periodo.anio,
-          mes: periodo.mes,
-          quincena: periodo.quincena,
           fechaInicio: periodo.fechaInicio,
           fechaFin: periodo.fechaFin,
           estado: EstadoLiquidacion.BORRADOR,
@@ -258,7 +250,7 @@ export class NominaService {
   }
 
   /**
-   * Liquida a todos los trabajadores con vínculo en el periodo y reemplaza las nóminas previas.
+   * Liquida a los trabajadores activos (y a quien tenga horas en la semana) y reemplaza las nóminas previas.
    * Debe ejecutarse dentro de la transacción que bloquea (o crea) la liquidación.
    */
   private async calcular(
@@ -267,15 +259,12 @@ export class NominaService {
     periodo: Periodo,
   ): Promise<LiquidacionConNominas> {
     const resolutor = await this.parametros.crearResolutor(m);
-    const trabajadores = await m
-      .getRepository(Trabajador)
-      .createQueryBuilder('t')
-      .where('t.fechaIngreso <= :fin', { fin: periodo.fechaFin })
-      .andWhere('(t.fechaRetiro IS NULL OR t.fechaRetiro >= :inicio)', { inicio: periodo.fechaInicio })
-      .orderBy('t.nombre', 'ASC')
-      .addOrderBy('t.id', 'ASC')
-      .getMany();
     const horas = await this.horasDelPeriodo(m, periodo);
+    const conHoras = [...new Set(horas.map((h) => h.trabajadorId))];
+    const trabajadores = await m.getRepository(Trabajador).find({
+      where: [{ estado: EstadoTrabajador.ACTIVO }, ...(conHoras.length ? [{ id: In(conHoras) }] : [])],
+      order: { nombre: 'ASC', id: 'ASC' },
+    });
     const resultado = liquidarNomina(periodo, trabajadores, horas, (fecha) => resolutor.en(fecha));
 
     await m.delete(NominaTrabajador, { liquidacionId: liquidacion.id });

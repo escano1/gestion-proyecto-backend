@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, LessThan, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Rol } from '../../common/enums/rol.enum.js';
 import type { UsuarioAutenticado } from '../../common/tipos/usuario-autenticado.js';
 import {
@@ -9,12 +9,6 @@ import {
   primerDiaMes,
   ultimaFechaMes,
 } from '../../common/utils/fechas.js';
-import {
-  EstadoHerramienta,
-  HerramientaProyecto,
-} from '../herramientas/herramienta-proyecto.entity.js';
-import type { EstadoAvance } from '../hitos/avance.js';
-import { MaterialProyecto } from '../materiales/material-proyecto.entity.js';
 import { LiquidacionNomina } from '../nomina/nomina.entity.js';
 import { EstadoProyecto, Proyecto } from '../proyectos/proyecto.entity.js';
 import {
@@ -29,7 +23,6 @@ import {
 } from './reportes-respuesta.js';
 import {
   desglosePorTipo,
-  ESTADOS_MATERIAL_PENDIENTE,
   type HorasTipo,
   ReportesService,
 } from './reportes.service.js';
@@ -56,16 +49,6 @@ export interface Dashboard {
     costo: number;
   }[];
   alertasHorasExtra: number;
-  materialesPendientes: number;
-  herramientasVencidas: number;
-  avanceProyectos: {
-    id: number;
-    codigo: string;
-    nombre: string;
-    avanceReal: number;
-    avancePlaneado: number;
-    estado: EstadoAvance;
-  }[];
   ultimaLiquidacion: LiquidacionResumen | null;
 }
 
@@ -78,10 +61,6 @@ export class DashboardService {
     private readonly proyectos: Repository<Proyecto>,
     @InjectRepository(Trabajador)
     private readonly trabajadores: Repository<Trabajador>,
-    @InjectRepository(MaterialProyecto)
-    private readonly materiales: Repository<MaterialProyecto>,
-    @InjectRepository(HerramientaProyecto)
-    private readonly herramientas: Repository<HerramientaProyecto>,
     @InjectRepository(LiquidacionNomina)
     private readonly liquidaciones: Repository<LiquidacionNomina>,
   ) {}
@@ -97,21 +76,12 @@ export class DashboardService {
       trabajadoresActivos,
       horasMes,
       alertas,
-      materialesPendientes,
-      herramientasVencidas,
-      avances,
       ultimaLiquidacion,
     ] = await Promise.all([
       this.proyectos.countBy({ estado: EstadoProyecto.ACTIVO }),
       this.trabajadores.countBy({ estado: EstadoTrabajador.ACTIVO }),
       this.horasCosteadas.consultar({ desde, hasta }),
       this.horasCosteadas.alertas(desde, hasta),
-      this.materiales.countBy({ estado: In(ESTADOS_MATERIAL_PENDIENTE) }),
-      this.herramientas.countBy({
-        estado: EstadoHerramienta.ASIGNADA,
-        fechaDevolucionPrevista: LessThan(hoy),
-      }),
-      this.reportes.avanceProyectos(EstadoProyecto.ACTIVO),
       veNomina ? this.ultimaLiquidacion() : Promise.resolve(null),
     ]);
 
@@ -136,16 +106,6 @@ export class DashboardService {
           costo,
         })),
       alertasHorasExtra: alertas.length,
-      materialesPendientes,
-      herramientasVencidas,
-      avanceProyectos: avances.map(({ proyecto, avance }) => ({
-        id: proyecto.id,
-        codigo: proyecto.codigo,
-        nombre: proyecto.nombre,
-        avanceReal: avance.avanceReal,
-        avancePlaneado: avance.avancePlaneado,
-        estado: avance.estado,
-      })),
       ultimaLiquidacion,
     };
   }

@@ -20,9 +20,6 @@ import { AsignacionesModule } from './modules/asignaciones/asignaciones.module.j
 import { RegistroHorasModule } from './modules/registro-horas/registro-horas.module.js';
 import { NominaModule } from './modules/nomina/nomina.module.js';
 import { MaterialesModule } from './modules/materiales/materiales.module.js';
-import { HerramientasModule } from './modules/herramientas/herramientas.module.js';
-import { HitosModule } from './modules/hitos/hitos.module.js';
-import { BitacoraModule } from './modules/bitacora/bitacora.module.js';
 import { ReportesModule } from './modules/reportes/reportes.module.js';
 
 @Module({
@@ -49,9 +46,6 @@ import { ReportesModule } from './modules/reportes/reportes.module.js';
     RegistroHorasModule,
     NominaModule,
     MaterialesModule,
-    HerramientasModule,
-    HitosModule,
-    BitacoraModule,
     ReportesModule,
   ],
   controllers: [HealthController],

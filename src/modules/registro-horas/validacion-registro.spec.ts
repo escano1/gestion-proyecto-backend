@@ -41,24 +41,13 @@ const tipo = (
     ...extra,
   });
 
-const trabajador = (fechaRetiro: string | null = null) =>
-  Object.assign(new Trabajador(), {
-    id: TRABAJADOR,
-    nombre: 'Juan Pérez',
-    fechaIngreso: '2026-01-15',
-    fechaRetiro,
-  });
+const trabajador = () =>
+  Object.assign(new Trabajador(), { id: TRABAJADOR, nombre: 'Juan Pérez' });
 
-const asignacion = (
-  proyectoId: number,
-  fechaInicio: string,
-  fechaFin: string | null,
-) =>
+const asignacion = (proyectoId: number) =>
   Object.assign(new AsignacionProyecto(), {
     trabajadorId: TRABAJADOR,
     proyectoId,
-    fechaInicio,
-    fechaFin,
   });
 
 const registro = (parcial: Partial<DatosRegistro> = {}): DatosRegistro => ({
@@ -90,10 +79,7 @@ function contexto(
       [PROYECTO, Object.assign(new Proyecto(), { id: PROYECTO })],
       [OTRO_PROYECTO, Object.assign(new Proyecto(), { id: OTRO_PROYECTO })],
     ]),
-    asignaciones: [
-      asignacion(PROYECTO, '2026-01-15', null),
-      asignacion(OTRO_PROYECTO, '2026-01-15', null),
-    ],
+    asignaciones: [asignacion(PROYECTO), asignacion(OTRO_PROYECTO)],
     periodosCerrados: [],
     horasGuardadas: agruparHorasGuardadas(
       guardadas.map((g) => ({
@@ -205,55 +191,26 @@ describe('validarRegistro', () => {
       );
     });
 
-    it('rechaza fechas futuras (hoy sí se permite)', () => {
-      expect(validar(registro({ fecha: '2026-10-09' }))).toThrow(
-        'No se pueden registrar horas en fechas futuras',
-      );
+    it('permite toda la semana en curso (hasta el domingo) y rechaza semanas futuras', () => {
+      // hoy = jueves 2026-10-08
       expect(validar(registro({ fecha: '2026-10-08' }))).not.toThrow();
-    });
-
-    it('rechaza fechas anteriores al ingreso', () => {
-      expect(validar(registro({ fecha: '2026-01-14' }))).toThrow(
-        'La fecha es anterior al ingreso del trabajador (2026-01-15)',
+      expect(validar(registro({ fecha: '2026-10-10' }))).not.toThrow(); // sábado
+      expect(validar(registro({ fecha: '2026-10-11' }))).not.toThrow(); // domingo
+      expect(validar(registro({ fecha: '2026-10-12' }))).toThrow(
+        'No se pueden registrar horas de semanas futuras',
       );
     });
 
-    it('rechaza fechas posteriores al retiro', () => {
-      const trabajadores = new Map([[TRABAJADOR, trabajador('2026-10-05')]]);
-      expect(validar(registro(), { trabajadores })).toThrow(
-        'La fecha es posterior al retiro del trabajador (2026-10-05)',
-      );
-      expect(
-        validar(registro({ fecha: '2026-10-05' }), { trabajadores }),
-      ).not.toThrow();
-    });
   });
 
   describe('asignación', () => {
-    const sinAsignacion =
-      'El trabajador no tiene una asignación vigente al proyecto en esa fecha';
-
-    it('exige una asignación al proyecto', () => {
+    it('exige que el trabajador esté asignado al proyecto', () => {
       expect(
-        validar(registro(), {
-          asignaciones: [asignacion(OTRO_PROYECTO, '2026-01-15', null)],
-        }),
-      ).toThrow(sinAsignacion);
-    });
-
-    it('la asignación debe cubrir la fecha (extremos incluidos)', () => {
-      const asignaciones = [asignacion(PROYECTO, '2026-10-06', '2026-10-06')];
-      expect(validar(registro(), { asignaciones })).not.toThrow();
+        validar(registro(), { asignaciones: [asignacion(OTRO_PROYECTO)] }),
+      ).toThrow('El trabajador no está asignado al proyecto');
       expect(
-        validar(registro(), {
-          asignaciones: [asignacion(PROYECTO, '2026-10-07', null)],
-        }),
-      ).toThrow(sinAsignacion);
-      expect(
-        validar(registro(), {
-          asignaciones: [asignacion(PROYECTO, '2026-01-15', '2026-10-05')],
-        }),
-      ).toThrow(sinAsignacion);
+        validar(registro(), { asignaciones: [asignacion(PROYECTO)] }),
+      ).not.toThrow();
     });
   });
 

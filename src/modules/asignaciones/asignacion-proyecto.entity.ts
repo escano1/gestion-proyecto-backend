@@ -6,13 +6,15 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
+  Unique,
   type Relation,
 } from 'typeorm';
 import { Trabajador } from '../trabajadores/trabajador.entity.js';
 import { Proyecto } from '../proyectos/proyecto.entity.js';
 
+/** Trabajador habilitado para registrar horas en un proyecto. */
 @Entity('asignaciones_proyecto')
-@Index(['trabajadorId', 'proyectoId'])
+@Unique('uq_asignacion_trabajador_proyecto', ['trabajadorId', 'proyectoId'])
 @Index(['proyectoId'])
 export class AsignacionProyecto {
   @PrimaryGeneratedColumn()
@@ -31,12 +33,6 @@ export class AsignacionProyecto {
   @ManyToOne(() => Proyecto, { nullable: false })
   @JoinColumn({ name: 'proyecto_id' })
   proyecto: Relation<Proyecto>;
-
-  @Column({ type: 'date' })
-  fechaInicio: string;
-
-  @Column({ type: 'date', nullable: true })
-  fechaFin: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   rolEnProyecto: string | null;

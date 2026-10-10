@@ -5,17 +5,13 @@ import type {
   LiquidacionNomina,
   NominaTrabajador,
   TipoConcepto,
-  TipoPeriodo,
 } from './nomina.entity.js';
 
 // Formas de respuesta del contrato (docs/API.md, sección "Nómina").
 
 export interface LiquidacionResumen {
   id: number;
-  tipoPeriodo: TipoPeriodo;
   anio: number;
-  mes: number;
-  quincena: 1 | 2 | null;
   fechaInicio: string;
   fechaFin: string;
   estado: EstadoLiquidacion;
@@ -64,7 +60,6 @@ export interface Desprendible extends NominaTrabajadorResumen {
   parametros: Record<string, number>;
   liquidacion: {
     id: number;
-    tipoPeriodo: TipoPeriodo;
     fechaInicio: string;
     fechaFin: string;
     estado: EstadoLiquidacion;
@@ -77,10 +72,7 @@ const iso = (fecha: Date | null): string | null => (fecha ? fecha.toISOString() 
 export function aLiquidacionResumen(l: LiquidacionNomina): LiquidacionResumen {
   return {
     id: l.id,
-    tipoPeriodo: l.tipoPeriodo,
     anio: l.anio,
-    mes: l.mes,
-    quincena: l.quincena === 1 || l.quincena === 2 ? l.quincena : null,
     fechaInicio: l.fechaInicio,
     fechaFin: l.fechaFin,
     estado: l.estado,
@@ -126,7 +118,6 @@ export function aDesprendible(
     parametros: n.parametros,
     liquidacion: {
       id: liquidacion.id,
-      tipoPeriodo: liquidacion.tipoPeriodo,
       fechaInicio: liquidacion.fechaInicio,
       fechaFin: liquidacion.fechaFin,
       estado: liquidacion.estado,

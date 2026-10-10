@@ -1,21 +1,12 @@
-import { EstadoMaterial } from './material-proyecto.entity.js';
-import { completarFechaEntrega } from './reglas-materiales.js';
+import { costoMaterial } from './reglas-materiales.js';
 
-const HOY = '2026-10-08';
-
-describe('completarFechaEntrega', () => {
-  it.each([EstadoMaterial.ENTREGADO, EstadoMaterial.INSTALADO])('%s sin fecha → hoy', (estado) => {
-    expect(completarFechaEntrega(estado, null, HOY)).toBe(HOY);
+describe('costoMaterial', () => {
+  it('multiplica precio por cantidad y redondea al peso', () => {
+    expect(costoMaterial({ precioUnitario: 12_500, cantidadSolicitada: 300 })).toBe(3_750_000);
+    expect(costoMaterial({ precioUnitario: 1_999.99, cantidadSolicitada: 2.5 })).toBe(5_000);
   });
 
-  it('respeta la fecha de entrega indicada', () => {
-    expect(completarFechaEntrega(EstadoMaterial.ENTREGADO, '2026-10-01', HOY)).toBe('2026-10-01');
+  it('un precio de 0 no genera costo', () => {
+    expect(costoMaterial({ precioUnitario: 0, cantidadSolicitada: 10 })).toBe(0);
   });
-
-  it.each([EstadoMaterial.PENDIENTE, EstadoMaterial.SOLICITADO])(
-    '%s no asigna fecha de entrega',
-    (estado) => {
-      expect(completarFechaEntrega(estado, null, HOY)).toBeNull();
-    },
-  );
 });

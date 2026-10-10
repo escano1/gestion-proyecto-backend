@@ -34,17 +34,17 @@ export class CrearProyectoDto {
   @MaxLength(200)
   nombre: string;
 
-  @Transform(recortar)
+  @IsOptional()
+  @Transform(recortarONulo)
   @IsString()
-  @IsNotEmpty()
   @MaxLength(150)
-  cliente: string;
+  cliente?: string | null;
 
-  @Transform(recortar)
+  @IsOptional()
+  @Transform(recortarONulo)
   @IsString()
-  @IsNotEmpty()
   @MaxLength(200)
-  ubicacion: string;
+  ubicacion?: string | null;
 
   @IsOptional()
   @Transform(recortarONulo)
