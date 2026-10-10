@@ -10,34 +10,16 @@ import { ActualizarUsuarioDto, CrearUsuarioDto } from './usuarios.dto.js';
 import { Rol } from '../../common/enums/rol.enum.js';
 
 describe('erroresPoliticaPassword', () => {
-  it.each(['Clave123', 'abcdefg1', 'contraseña9', '12345678a'])('acepta %s', (password) => {
+  it.each(['admin', 'Clave123', 'abcdefg1', 'contraseña9', '12345678', 'a'])('acepta %s', (password) => {
     expect(erroresPoliticaPassword(password)).toEqual([]);
   });
 
-  it('exige mínimo 8 caracteres', () => {
-    expect(erroresPoliticaPassword('Abc1234')).toEqual([
-      'La contraseña debe tener al menos 8 caracteres',
-    ]);
-  });
-
-  it('exige al menos una letra', () => {
-    expect(erroresPoliticaPassword('12345678')).toEqual([
-      'La contraseña debe contener al menos una letra',
-    ]);
-  });
-
-  it('exige al menos un número', () => {
-    expect(erroresPoliticaPassword('abcdefgh')).toEqual([
-      'La contraseña debe contener al menos un número',
-    ]);
-  });
-
-  it('acumula todos los incumplimientos', () => {
-    expect(erroresPoliticaPassword('')).toHaveLength(3);
+  it('solo rechaza la contraseña vacía', () => {
+    expect(erroresPoliticaPassword('')).toEqual(['La contraseña no puede estar vacía']);
   });
 
   it('rechaza claves de más de 72 bytes (bcrypt las truncaría)', () => {
-    expect(erroresPoliticaPassword(`a1${'x'.repeat(71)}`)).toEqual([
+    expect(erroresPoliticaPassword('x'.repeat(73))).toEqual([
       'La contraseña no puede superar 72 caracteres',
     ]);
   });
@@ -62,6 +44,17 @@ describe('DTOs de usuario', () => {
   const errores = async <T extends object>(clase: new () => T, datos: object) =>
     (await validate(plainToInstance(clase, datos))).map((e) => e.property);
 
+  it('acepta "admin" como usuario y como contraseña', async () => {
+    const dto = plainToInstance(CrearUsuarioDto, {
+      nombre: 'Admin',
+      email: ' Admin ',
+      password: 'admin',
+      rol: Rol.ADMIN,
+    });
+    expect(await validate(dto)).toEqual([]);
+    expect(dto.email).toBe('admin');
+  });
+
   it('normaliza el email y valida la política al crear', async () => {
     const dto = plainToInstance(CrearUsuarioDto, {
       nombre: '  Ana  ',
@@ -74,17 +67,17 @@ describe('DTOs de usuario', () => {
     expect(dto.nombre).toBe('Ana');
   });
 
-  it('rechaza una clave débil con el mensaje de la política', async () => {
+  it('rechaza una contraseña vacía con el mensaje de la política', async () => {
     const [error] = await validate(
       plainToInstance(CrearUsuarioDto, {
         nombre: 'Ana',
         email: 'ana@empresa.com',
-        password: 'corta',
+        password: '',
         rol: Rol.NOMINA,
       }),
     );
     expect(error.property).toBe('password');
-    expect(Object.values(error.constraints ?? {})[0]).toContain('al menos 8 caracteres');
+    expect(Object.values(error.constraints ?? {})[0]).toContain('no puede estar vacía');
   });
 
   it('en la edición permite omitir campos pero no enviarlos en null', async () => {
@@ -93,7 +86,7 @@ describe('DTOs de usuario', () => {
       'activo',
       'nombre',
     ]);
-    expect(await errores(ActualizarUsuarioDto, { password: 'sinnumero' })).toEqual(['password']);
+    expect(await errores(ActualizarUsuarioDto, { password: '' })).toEqual(['password']);
     const conEmail = await validate(plainToInstance(ActualizarUsuarioDto, { email: 'otro@x.co' }), {
       whitelist: true,
       forbidNonWhitelisted: true,

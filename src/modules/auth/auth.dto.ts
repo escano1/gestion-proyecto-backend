@@ -1,5 +1,5 @@
 import { Transform, type TransformFnParams } from 'class-transformer';
-import { IsEmail, IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 import {
   CumplePoliticaPassword,
   normalizarEmail,
@@ -9,8 +9,10 @@ const aEmail = ({ value }: TransformFnParams): unknown =>
   typeof value === 'string' ? normalizarEmail(value) : value;
 
 export class LoginDto {
+  /** Usuario de ingreso: normalmente un correo, pero se acepta cualquier texto (p. ej. "admin"). */
   @Transform(aEmail)
-  @IsEmail({}, { message: 'email debe ser un correo electrónico válido' })
+  @IsString()
+  @IsNotEmpty()
   @MaxLength(160)
   email: string;
 

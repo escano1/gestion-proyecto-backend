@@ -6,26 +6,20 @@ import {
 } from 'class-validator';
 
 const COSTO_BCRYPT = 10;
-const LONGITUD_MINIMA = 8;
 // bcrypt ignora todo lo que supere 72 bytes.
 const BYTES_MAXIMOS = 72;
 
 export const normalizarEmail = (email: string): string => email.trim().toLowerCase();
 
-/** Política: mínimo 8 caracteres, al menos una letra y un número. */
+/**
+ * Política mínima (uso interno de una sola persona): solo se exige que no esté vacía y que bcrypt
+ * no la trunque. No se pide longitud, letras ni números.
+ */
 export function erroresPoliticaPassword(password: string): string[] {
   const errores: string[] = [];
-  if (password.length < LONGITUD_MINIMA) {
-    errores.push(`La contraseña debe tener al menos ${LONGITUD_MINIMA} caracteres`);
-  }
+  if (password.length === 0) errores.push('La contraseña no puede estar vacía');
   if (Buffer.byteLength(password, 'utf8') > BYTES_MAXIMOS) {
     errores.push(`La contraseña no puede superar ${BYTES_MAXIMOS} caracteres`);
-  }
-  if (!/\p{L}/u.test(password)) {
-    errores.push('La contraseña debe contener al menos una letra');
-  }
-  if (!/\p{Nd}/u.test(password)) {
-    errores.push('La contraseña debe contener al menos un número');
   }
   return errores;
 }

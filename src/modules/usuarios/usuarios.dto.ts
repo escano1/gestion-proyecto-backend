@@ -2,7 +2,6 @@ import { PartialType, PickType } from '@nestjs/swagger';
 import { Transform, type TransformFnParams } from 'class-transformer';
 import {
   IsBoolean,
-  IsEmail,
   IsEnum,
   IsNotEmpty,
   IsString,
@@ -23,8 +22,10 @@ export class CrearUsuarioDto {
   @MaxLength(120)
   nombre: string;
 
+  /** Usuario de ingreso: normalmente un correo, pero se acepta cualquier texto (p. ej. "admin"). */
   @Transform(aEmail)
-  @IsEmail({}, { message: 'email debe ser un correo electrónico válido' })
+  @IsString()
+  @IsNotEmpty()
   @MaxLength(160)
   email: string;
 
