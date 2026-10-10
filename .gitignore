@@ -67,3 +67,6 @@ src/database/migrations/*.js
 
 # Uploads locales (los adjuntos se guardan en PostgreSQL)
 uploads/
+
+# Copias locales de variables de entorno (contienen credenciales)
+env
